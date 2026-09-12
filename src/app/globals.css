@@ -1,26 +1,128 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --primary-dark: #092115;
+  --primary-green: #113824;
+  --primary-emerald: #195235;
+  --gold-amber: #d97706;
+  --gold-sun: #f59e0b;
+  --gold-light: #fbbf24;
+  --cream-canvas: #fdfbf7;
+  --cream-sand: #f5eee2;
+  --slate-charcoal: #111827;
+  --slate-stone: #4b5563;
+  --border-gold: #e8dbc5;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #fdfbf7;
+  color: #111827;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow-x: hidden;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1ebd9;
+}
+::-webkit-scrollbar-thumb {
+  background: #195235;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #092115;
+}
+
+/* Glassmorphism */
+.glass-header {
+  background: rgba(253, 251, 247, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-dark {
+  background: rgba(9, 33, 21, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.card-luxury {
+  background: #ffffff;
+  border: 1px solid #ebdcc5;
+  box-shadow: 0 4px 20px -2px rgba(17, 56, 36, 0.05);
+  transition: all 0.25s ease-in-out;
+}
+
+.card-luxury:hover {
+  border-color: #d97706;
+  box-shadow: 0 10px 30px -4px rgba(217, 119, 6, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Golden Shimmer */
+.gold-gradient {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
+}
+
+.emerald-gradient {
+  background: linear-gradient(135deg, #092115 0%, #113824 50%, #195235 100%);
+}
+
+/* Print Styles for Packing Slips and Invoices */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-slip, .printable-slip * {
+    visibility: visible;
+  }
+  .printable-slip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Luxury Announcement Marquee Right-to-Left Ticker */
+@keyframes marquee-rtl {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-marquee-rtl {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee-rtl 35s linear infinite;
+  will-change: transform;
+}
+
+.marquee-container:hover .animate-marquee-rtl {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-rtl {
+    animation: none !important;
+    transform: none !important;
+    white-space: normal !important;
+  }
+}
+
