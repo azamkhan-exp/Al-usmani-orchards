@@ -12,19 +12,19 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    let customer = db.prepare(`
+    let customer = (await db.prepare(`
       SELECT id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at
       FROM customers
       WHERE user_id = ? OR email = ?
-    `).get(user.id, user.email) as any;
+    `).get(user.id, user.email)) as any;
 
     if (!customer) {
       // Ensure customer profile row exists
       const custId = crypto.randomUUID();
       const referralCode = `AUO-${Math.floor(1000 + Math.random() * 9000)}`;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at)
-        VALUES (?, ?, ?, ?, ?, 'Lahore', 'NEW', 0, 0, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, 'Lahore', 'NEW', 0, 0, ?, CURRENT_TIMESTAMP)
       `).run(custId, user.id, user.name, user.email, user.phone || null, referralCode);
       customer = {
         id: custId,
@@ -40,13 +40,16 @@ export async function GET() {
         created_at: new Date().toISOString()
       };
     } else if (!customer.user_id) {
-      db.prepare('UPDATE customers SET user_id = ? WHERE id = ?').run(user.id, customer.id);
+      await db.prepare('UPDATE customers SET user_id = ? WHERE id = ?').run(user.id, customer.id);
       customer.user_id = user.id;
     }
 
     // Quick summary counts
-    const addressCount = (db.prepare('SELECT COUNT(*) as count FROM customer_addresses WHERE customer_id = ?').get(customer.id) as any)?.count || 0;
-    const orderCount = (db.prepare('SELECT COUNT(*) as count FROM orders WHERE customer_id = ? OR LOWER(guest_email) = ?').get(customer.id, user.email.toLowerCase()) as any)?.count || 0;
+    const addressCountRow = (await db.prepare('SELECT COUNT(*) as count FROM customer_addresses WHERE customer_id = ?').get(customer.id)) as any;
+    const addressCount = Number(addressCountRow?.count || 0);
+
+    const orderCountRow = (await db.prepare('SELECT COUNT(*) as count FROM orders WHERE customer_id = ? OR LOWER(guest_email) = ?').get(customer.id, user.email.toLowerCase())) as any;
+    const orderCount = Number(orderCountRow?.count || 0);
 
     return NextResponse.json({
       success: true,
@@ -88,16 +91,16 @@ export async function PUT(req: NextRequest) {
 
     const db = getDatabase();
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET 
         name = COALESCE(?, name),
         phone = COALESCE(?, phone),
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(name?.trim() || null, phone?.trim() || null, user.id);
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE customers
       SET
         full_name = COALESCE(?, full_name),

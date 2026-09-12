@@ -348,3 +348,95 @@ export function generateTestEmailHtml(storeName = 'Al Usmani Orchards'): string 
 </html>
   `;
 }
+
+export function generatePasswordResetOtpHtml(params: {
+  otp: string;
+  name?: string;
+  expiresMinutes?: number;
+  storeName?: string;
+  supportEmail?: string;
+}): string {
+  const storeName = params.storeName || 'Al Usmani Orchards';
+  const name = params.name || 'Honored Patron';
+  const expires = params.expiresMinutes || 10;
+  const supportEmail = params.supportEmail || 'harvest@alusmaniorchards.pk';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Password Reset Code — ${storeName}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #FDFBF7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FDFBF7; padding: 30px 15px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background-color: #FFFFFF; border-radius: 16px; overflow: hidden; border: 1px solid #E8DBC5; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color: #092115; padding: 35px 30px; text-align: center; border-bottom: 3px solid #F59E0B;">
+              <div style="font-size: 32px; margin-bottom: 8px;">🥭</div>
+              <div style="font-size: 11px; letter-spacing: 3px; color: #F59E0B; font-weight: bold; text-transform: uppercase;">
+                ESTD. 1934 • MULTAN
+              </div>
+              <h1 style="color: #FFFFFF; margin: 8px 0 4px 0; font-size: 22px; font-family: Georgia, serif; font-weight: 900; letter-spacing: 1px;">
+                ${storeName}
+              </h1>
+              <p style="color: #F5EEE2; margin: 0; font-size: 12px; font-style: italic; opacity: 0.9;">
+                &ldquo;From Our Orchards to Your Door.&rdquo;
+              </p>
+            </td>
+          </tr>
+
+          <!-- Content Body -->
+          <tr>
+            <td style="padding: 35px 30px;">
+              <h2 style="color: #113824; font-size: 18px; margin: 0 0 12px 0; font-family: Georgia, serif;">
+                Password Reset Verification
+              </h2>
+              <p style="color: #4B5563; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
+                Assalam-o-Alaikum ${name},<br/>
+                We received a request to reset the password for your Al Usmani Orchards patron account. Please use the single-use verification code below:
+              </p>
+
+              <!-- OTP Code Display Card -->
+              <div style="text-align: center; margin: 25px 0; padding: 22px; background-color: #FDFBF7; border: 2px dashed #D97706; border-radius: 14px;">
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; font-weight: bold; color: #D97706; margin-bottom: 8px;">
+                  Your 6-Digit Security Code
+                </div>
+                <div style="font-size: 34px; font-weight: 900; letter-spacing: 10px; color: #113824; font-family: 'Courier New', monospace;">
+                  ${params.otp}
+                </div>
+                <div style="font-size: 12px; color: #6B7280; margin-top: 8px;">
+                  Valid for <strong>${expires} minutes</strong> • Single-use security token
+                </div>
+              </div>
+
+              <!-- Warning & Security Note -->
+              <div style="background-color: #FEF3C7; border: 1px solid #FCD34D; border-radius: 10px; padding: 14px 16px; margin: 25px 0; font-size: 12px; color: #92400E; line-height: 1.5;">
+                <strong>Security Advisory:</strong> If you did not initiate this request, your account password remains safe and unchanged. You can disregard this email.
+              </div>
+
+              <p style="color: #4B5563; font-size: 13px; line-height: 1.6; margin: 0;">
+                For immediate assistance, please reply to this email or reach our WhatsApp Concierge at <strong>+92 300 8472910</strong>.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F9FAFB; padding: 20px 30px; text-align: center; border-top: 1px solid #E5E7EB; font-size: 11px; color: #9CA3AF;">
+              Al Usmani Orchards (Private) Limited • Multan & Mirpur Khas, Pakistan<br/>
+              Support: <a href="mailto:${supportEmail}" style="color: #113824; text-decoration: none; font-weight: bold;">${supportEmail}</a> • Web: <a href="https://alusmaniorchards.pk" style="color: #113824; text-decoration: none; font-weight: bold;">alusmaniorchards.pk</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+}

@@ -13,11 +13,11 @@ export async function GET(
     const { id } = await params;
     const db = getDatabase();
 
-    const order = db.prepare(`
+    const order = (await db.prepare(`
       SELECT o.id, o.order_number, o.customer_id, o.guest_email, o.guest_phone
       FROM orders o
       WHERE o.id = ? OR o.order_number = ?
-    `).get(id, id) as any;
+    `).get(id, id)) as any;
 
     if (!order) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -28,13 +28,14 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const phoneParam = searchParams.get('phone')?.trim();
     const emailParam = searchParams.get('email')?.trim().toLowerCase();
+    const wantsDownload = searchParams.get('download') === 'true' || searchParams.get('download') === '1' || searchParams.get('dl') === '1';
 
     let isAuthorized = false;
 
     if (user) {
       if (user.role !== 'CUSTOMER' && hasPermission(user.role, 'orders:read')) {
         isAuthorized = true; // Admin/staff
-      } else if (order.customer_id === user.id) {
+      } else if (order.customer_id && order.customer_id === user.id) {
         isAuthorized = true; // Customer owner
       }
     }
@@ -43,8 +44,8 @@ export async function GET(
     if (!isAuthorized && (phoneParam || emailParam)) {
       const dbPhone = (order.guest_phone || '').replace(/\D/g, '');
       const queryPhone = (phoneParam || '').replace(/\D/g, '');
-      const phoneMatches = queryPhone && dbPhone && (dbPhone.includes(queryPhone) || queryPhone.includes(dbPhone));
-      const emailMatches = emailParam && order.guest_email && order.guest_email.toLowerCase() === emailParam;
+      const phoneMatches = Boolean(queryPhone && dbPhone && (dbPhone.includes(queryPhone) || queryPhone.includes(dbPhone)));
+      const emailMatches = Boolean(emailParam && order.guest_email && order.guest_email.toLowerCase() === emailParam);
 
       if (phoneMatches || emailMatches) {
         isAuthorized = true;
@@ -66,13 +67,16 @@ export async function GET(
     }
 
     const pdfBytes = await generateOrderSlipPdf(order.id);
+    const dispositionType = wantsDownload ? 'attachment' : 'inline';
 
     return new Response(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="Al-Usmani-Consignment-${order.order_number}.pdf"`,
-        'Cache-Control': 'no-store, max-age=0'
+        'Content-Disposition': `${dispositionType}; filename="Al-Usmani-Consignment-${order.order_number}.pdf"`,
+        'Content-Length': String(pdfBytes.byteLength),
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        'X-Content-Type-Options': 'nosniff'
       }
     });
   } catch (err: any) {

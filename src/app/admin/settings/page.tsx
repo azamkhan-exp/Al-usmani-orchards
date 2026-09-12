@@ -48,9 +48,10 @@ import {
 
 type SettingsTab =
   | 'general'
+  | 'admins'
+  | 'account'
   | 'features'
   | 'whatsapp'
-  | 'admins'
   | 'contact'
   | 'orders'
   | 'shipping'
@@ -122,6 +123,18 @@ export default function AdminSettingsPage() {
   // Deleting Admin Modal
   const [deletingAdmin, setDeletingAdmin] = useState<any | null>(null);
   const [adminActionLoading, setAdminActionLoading] = useState(false);
+
+  // Admin Account Settings State
+  const [accountDetails, setAccountDetails] = useState<any | null>(null);
+  const [accountName, setAccountName] = useState('');
+  const [accountUsername, setAccountUsername] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPhone, setAccountPhone] = useState('');
+  const [accountCurrentPassword, setAccountCurrentPassword] = useState('');
+  const [accountNewPassword, setAccountNewPassword] = useState('');
+  const [accountConfirmPassword, setAccountConfirmPassword] = useState('');
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [passwordChanging, setPasswordChanging] = useState(false);
 
   // Settings State
   const [general, setGeneral] = useState({
@@ -306,9 +319,94 @@ export default function AdminSettingsPage() {
     }
   }, [searchParams]);
 
+  const fetchAdminAccount = async () => {
+    try {
+      const res = await safeFetchJson<any>('/api/admin/settings/account');
+      if (res?.success && res.user) {
+        setAccountDetails(res.user);
+        setAccountName(res.user.name || '');
+        setAccountUsername(res.user.username || '');
+        setAccountEmail(res.user.email || '');
+        setAccountPhone(res.user.phone || '');
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch admin account details:', err);
+    }
+  };
+
+  const handleSaveAdminProfile = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAccountSaving(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    try {
+      const res = await safeFetchJson<any>('/api/admin/settings/account', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: accountName.trim(),
+          username: accountUsername.trim() || null,
+          email: accountEmail.trim(),
+          phone: accountPhone.trim() || null
+        })
+      });
+      if (res?.success) {
+        setSuccessMessage('Administrator profile updated successfully.');
+        fetchAdminAccount();
+        fetchAdmins();
+      } else {
+        setErrorMessage(res?.error || 'Failed to update administrator profile.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error updating profile.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleChangeAdminPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accountNewPassword || accountNewPassword.length < 8) {
+      setErrorMessage('New password must be at least 8 characters long.');
+      return;
+    }
+    if (accountNewPassword !== accountConfirmPassword) {
+      setErrorMessage('New passwords do not match. Please re-enter.');
+      return;
+    }
+    setPasswordChanging(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    try {
+      const res = await safeFetchJson<any>('/api/admin/settings/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: accountCurrentPassword,
+          newPassword: accountNewPassword
+        })
+      });
+      if (res?.success) {
+        setSuccessMessage('Your master password has been changed successfully.');
+        setAccountCurrentPassword('');
+        setAccountNewPassword('');
+        setAccountConfirmPassword('');
+      } else {
+        setErrorMessage(res?.error || 'Failed to change password.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error changing password.');
+    } finally {
+      setPasswordChanging(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'admins') {
       fetchAdmins();
+    }
+    if (activeTab === 'account') {
+      fetchAdminAccount();
     }
   }, [activeTab]);
 
@@ -722,16 +820,17 @@ export default function AdminSettingsPage() {
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: any }> = [
     { id: 'general', label: 'General & Brand', icon: Store },
-    { id: 'admins', label: 'Admin Roster & RBAC', icon: Users },
-    { id: 'features', label: 'Master Feature Control', icon: Sliders },
-    { id: 'whatsapp', label: 'WhatsApp Business API', icon: MessageSquare },
-    { id: 'contact', label: 'Contact & Orchards', icon: Phone },
+    { id: 'admins', label: 'Admin Access', icon: Users },
+    { id: 'account', label: 'Admin Account', icon: UserCheck },
     { id: 'orders', label: 'Order Engine', icon: ShoppingCart },
     { id: 'shipping', label: 'Cold-Chain Shipping', icon: Truck },
     { id: 'couriers', label: 'Courier Partners', icon: Truck },
-    { id: 'notifications', label: 'Order Alerts (Email & WhatsApp)', icon: Bell },
+    { id: 'whatsapp', label: 'WhatsApp Business API', icon: MessageSquare },
     { id: 'email', label: 'Email & SMTP', icon: Mail },
+    { id: 'notifications', label: 'Order Alerts (Email & WhatsApp)', icon: Bell },
+    { id: 'features', label: 'Feature Flags', icon: Sliders },
     { id: 'security', label: 'Admin Security', icon: Shield },
+    { id: 'contact', label: 'Contact & Orchards', icon: Phone },
     { id: 'seo', label: 'SEO & Metadata', icon: Search }
   ];
 
@@ -807,7 +906,7 @@ export default function AdminSettingsPage() {
                 <span>Add Administrator</span>
               </button>
             ) : null
-          ) : (
+          ) : activeTab === 'account' ? null : (
             <button
               onClick={() => handleSaveSection(activeTab)}
               disabled={saving}
@@ -866,6 +965,163 @@ export default function AdminSettingsPage() {
 
         {/* Tab Content Cards */}
         <div className="card-luxury p-6 sm:p-8 rounded-3xl bg-white border border-gray-200 shadow-xs">
+          {/* TAB: ADMIN ACCOUNT SETTINGS */}
+          {activeTab === 'account' && (
+            <div className="space-y-8">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-4">
+                <div>
+                  <h3 className="text-lg font-serif font-black text-[#113824] flex items-center space-x-2">
+                    <UserCheck className="w-5 h-5 text-emerald-700" />
+                    <span>My Administrative Account & Credentials</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Update your profile identity, manage username and email, and rotate your master access password securely.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                    Role: {accountDetails?.role || currentAdminUser?.role || 'ADMIN'}
+                  </span>
+                  <span className="px-3 py-1 rounded-full text-xs font-mono bg-gray-100 text-gray-700 border border-gray-200">
+                    {accountDetails?.activeSessions || 1} Active Session{(accountDetails?.activeSessions || 1) > 1 ? 's' : ''}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Card 1: Identity & Contact Form */}
+                <form onSubmit={handleSaveAdminProfile} className="p-6 rounded-3xl bg-[#FDFBF7] border border-[#E8DBC5] space-y-4 text-xs">
+                  <div className="flex items-center space-x-2 border-b border-[#E8DBC5] pb-3 text-[#113824]">
+                    <Store className="w-4 h-4 text-[#D97706]" />
+                    <h4 className="font-serif font-bold text-sm">Account Identity & Profile</h4>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Full Legal Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={accountName}
+                      onChange={(e) => setAccountName(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
+                      placeholder="e.g. Tariq Usmani"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Username (Handle)</label>
+                    <input
+                      type="text"
+                      value={accountUsername}
+                      onChange={(e) => setAccountUsername(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-mono text-xs"
+                      placeholder="e.g. tariq_admin"
+                    />
+                    <span className="text-[10px] text-gray-400">Used for administrative login identification.</span>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Primary Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={accountEmail}
+                      onChange={(e) => setAccountEmail(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-medium"
+                      placeholder="admin@alusmaniorchards.pk"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Mobile Phone Number</label>
+                    <input
+                      type="tel"
+                      value={accountPhone}
+                      onChange={(e) => setAccountPhone(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-mono text-xs"
+                      placeholder="+92 300 8472910"
+                    />
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={accountSaving}
+                      className="w-full py-3 rounded-xl bg-[#113824] hover:bg-[#195235] text-white font-bold text-xs uppercase tracking-wider disabled:opacity-50 transition-colors shadow-xs"
+                    >
+                      {accountSaving ? 'Saving Profile...' : 'Save Account Details'}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Card 2: Password Rotation Form */}
+                <form onSubmit={handleChangeAdminPassword} className="p-6 rounded-3xl bg-white border border-gray-200 shadow-xs space-y-4 text-xs">
+                  <div className="flex items-center space-x-2 border-b pb-3 text-[#113824]">
+                    <KeyRound className="w-4 h-4 text-[#D97706]" />
+                    <h4 className="font-serif font-bold text-sm">Security & Password Rotation</h4>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Current Password</label>
+                    <input
+                      type="password"
+                      required={accountDetails?.hasPassword}
+                      value={accountCurrentPassword}
+                      onChange={(e) => setAccountCurrentPassword(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-mono text-xs"
+                      placeholder="Enter current password"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">New Password (Min 8 Chars)</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={accountNewPassword}
+                      onChange={(e) => setAccountNewPassword(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-mono text-xs"
+                      placeholder="New master password"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Confirm New Password</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={accountConfirmPassword}
+                      onChange={(e) => setAccountConfirmPassword(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-white font-mono text-xs"
+                      placeholder="Confirm new password"
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900 space-y-1">
+                    <div className="font-bold flex items-center space-x-1">
+                      <Lock className="w-3 h-3 text-amber-700" />
+                      <span>Cryptographic Protection</span>
+                    </div>
+                    <p>Passwords are hashed with Scrypt key derivation. Rotating your password will secure your account across all sessions.</p>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={passwordChanging}
+                      className="w-full py-3 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-bold text-xs uppercase tracking-wider disabled:opacity-50 transition-colors shadow-xs"
+                    >
+                      {passwordChanging ? 'Updating Password...' : 'Update Password Securely'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* TAB: MASTER FEATURE CONTROL SWITCHBOARD */}
           {activeTab === 'features' && (
             <div className="space-y-8">

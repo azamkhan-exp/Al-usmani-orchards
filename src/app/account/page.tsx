@@ -665,7 +665,7 @@ export default function CustomerAccountPage() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex space-x-2 border-b border-[#E8DBC5] pb-2 text-xs font-bold overflow-x-auto">
+        <div className="flex space-x-2 border-b border-[#E8DBC5] pb-2 text-xs font-bold overflow-x-auto no-scrollbar scroll-smooth">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -673,13 +673,13 @@ export default function CustomerAccountPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2.5 rounded-xl transition-all whitespace-nowrap flex items-center space-x-1.5 ${
+                className={`px-4 py-2.5 rounded-xl transition-all whitespace-nowrap flex items-center space-x-2 shrink-0 min-h-[42px] cursor-pointer ${
                   isActive
                     ? 'bg-[#113824] text-white shadow-xs'
                     : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-4 h-4 shrink-0" />
                 <span>{tab.label}</span>
               </button>
             );
@@ -765,7 +765,7 @@ export default function CustomerAccountPage() {
                         <button
                           type="button"
                           onClick={() => setSelectedOrderDetail(ord)}
-                          className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold transition-colors"
+                          className="px-3.5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold transition-colors min-h-[38px] flex items-center"
                         >
                           View Details
                         </button>
@@ -774,18 +774,20 @@ export default function CustomerAccountPage() {
                           href={`/api/orders/${ord.id}/pdf`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-2 rounded-xl bg-[#FDFBF7] hover:bg-[#F5EEE2] border border-[#E8DBC5] text-[#113824] transition-colors"
-                          title="Download Official Invoice (PDF)"
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-[#FDFBF7] hover:bg-[#F5EEE2] border border-[#E8DBC5] text-[#113824] text-xs font-bold transition-colors min-h-[38px] shadow-xs"
+                          title="Download Consignment Slip (PDF)"
                         >
-                          <FileText className="w-4 h-4 text-[#D97706]" />
+                          <FileText className="w-3.5 h-3.5 text-[#D97706]" />
+                          <span>Order Slip (PDF)</span>
                         </a>
 
                         <Link
                           href={`/track-order?ref=${encodeURIComponent(ord.order_number)}`}
-                          className="p-2 rounded-xl bg-[#113824]/5 hover:bg-[#113824]/10 text-[#113824] border border-[#113824]/15 transition-colors"
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-[#113824]/5 hover:bg-[#113824]/10 text-[#113824] border border-[#113824]/15 text-xs font-bold transition-colors min-h-[38px]"
                           title="Live Tracking"
                         >
-                          <Truck className="w-4 h-4 text-[#D97706]" />
+                          <Truck className="w-3.5 h-3.5 text-[#D97706]" />
+                          <span>Track</span>
                         </Link>
                       </div>
                     </div>
@@ -1625,22 +1627,22 @@ export default function CustomerAccountPage() {
                 </div>
 
                 {/* Modal Footer actions */}
-                <div className="flex space-x-2 pt-2">
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
                   <a
                     href={`/api/orders/${selectedOrderDetail.id}/pdf`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 py-3 rounded-xl bg-[#113824] hover:bg-[#195235] text-white text-center font-bold uppercase tracking-wider text-xs flex items-center justify-center space-x-1.5 transition-colors shadow-xs"
+                    className="flex-1 py-3 px-4 rounded-xl bg-[#113824] hover:bg-[#195235] text-white text-center font-bold uppercase tracking-wider text-xs flex items-center justify-center space-x-2 transition-colors shadow-xs min-h-[44px]"
                   >
-                    <FileText className="w-3.5 h-3.5 text-[#F59E0B]" />
-                    <span>Download Invoice (PDF)</span>
+                    <FileText className="w-4 h-4 text-[#F59E0B]" />
+                    <span>Download Consignment Slip (PDF)</span>
                   </a>
                   <Link
                     href={`/track-order?ref=${encodeURIComponent(selectedOrderDetail.order_number)}`}
-                    className="py-3 px-5 rounded-xl bg-[#F5EEE2] hover:bg-[#E8DBC5] text-[#113824] font-bold uppercase tracking-wider text-xs flex items-center justify-center space-x-1 transition-colors"
+                    className="py-3 px-5 rounded-xl bg-[#F5EEE2] hover:bg-[#E8DBC5] text-[#113824] font-bold uppercase tracking-wider text-xs flex items-center justify-center space-x-1.5 transition-colors min-h-[44px]"
                   >
-                    <Truck className="w-3.5 h-3.5" />
-                    <span>Track</span>
+                    <Truck className="w-4 h-4 text-[#D97706]" />
+                    <span>Track Consignment</span>
                   </Link>
                 </div>
               </div>

@@ -57,7 +57,7 @@ export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
-  type: 'ORDER_CONFIRMATION' | 'ORDER_DISPATCHED' | 'ADMIN_ALERT' | 'TEST';
+  type: 'ORDER_CONFIRMATION' | 'ORDER_DISPATCHED' | 'ADMIN_ALERT' | 'PASSWORD_RESET' | 'TEST';
   orderId?: string;
   idempotencyKey?: string;
 }

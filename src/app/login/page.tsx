@@ -23,6 +23,7 @@ function LoginForm() {
   const [resetStep, setResetStep] = useState<'REQUEST' | 'RESET'>('REQUEST');
   const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [resetSuccessMessage, setResetSuccessMessage] = useState('');
 
   const [loading, setLoading] = useState(false);
@@ -108,16 +109,20 @@ function LoginForm() {
       const data = await safeFetchJson<any>('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: email.trim() })
       });
       if (data?.success) {
-        setResetSuccessMessage('Security reset code generated. Enter code below to set new password.');
-        if (data.resetToken) {
-          setResetToken(data.resetToken);
+        if (data.isGoogleAccount) {
+          setError(data.message);
+        } else {
+          setResetSuccessMessage(data.message || 'Verification code sent to your email.');
+          if (data.debugOtp) {
+            setResetToken(data.debugOtp);
+          }
+          setResetStep('RESET');
         }
-        setResetStep('RESET');
       } else {
-        setError(data?.error || 'Unable to request password reset');
+        setError(data?.error || 'Unable to process password reset request.');
       }
     } catch (e: any) {
       setError(e?.message || 'Network error. Please try again.');
@@ -128,22 +133,35 @@ function LoginForm() {
 
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!resetToken.trim()) {
+      setError('Please enter the 6-digit verification code.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== resetConfirmPassword) {
+      setError('Passwords do not match. Please re-enter.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       const data = await safeFetchJson<any>('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, newPassword })
+        body: JSON.stringify({
+          email: email.trim(),
+          otp: resetToken.trim(),
+          newPassword
+        })
       });
       if (data?.success) {
-        alert('Password successfully reset! Please sign in with your new password.');
-        setTab('LOGIN');
-        setPassword('');
-        setResetStep('REQUEST');
-        setResetSuccessMessage('');
+        router.push('/account?toast=password_reset_success');
       } else {
-        setError(data?.error || 'Invalid or expired reset token');
+        setError(data?.error || 'Invalid or expired verification code.');
       }
     } catch (e: any) {
       setError(e?.message || 'Network error. Please try again.');
@@ -419,7 +437,7 @@ function LoginForm() {
               {resetStep === 'REQUEST' ? (
                 <form onSubmit={handleForgotPasswordRequest} className="space-y-3">
                   <p className="text-gray-500 text-[11px]">
-                    Enter your registered account email. A security token will be issued to reset your password.
+                    Enter your registered account email. A secure 6-digit verification code will be dispatched to your inbox.
                   </p>
                   <div>
                     <label className="block font-bold text-gray-700 mb-1">Email Address</label>
@@ -429,30 +447,39 @@ function LoginForm() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="patron@example.com"
-                      className="w-full p-2.5 rounded-xl border border-gray-300"
+                      className="w-full p-2.5 rounded-xl border border-gray-300 bg-[#FDFBF7]"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3 rounded-xl bg-[#113824] hover:bg-[#195235] text-white font-bold uppercase tracking-wider text-xs shadow"
+                    className="w-full py-3 rounded-xl bg-[#113824] hover:bg-[#195235] text-white font-bold uppercase tracking-wider text-xs shadow transition-colors"
                   >
-                    {loading ? 'Issuing Token...' : 'Issue Reset Code'}
+                    {loading ? 'Sending Code...' : 'Send 6-Digit OTP Code'}
                   </button>
                 </form>
               ) : (
                 <form onSubmit={handleResetPasswordSubmit} className="space-y-3">
+                  {resetSuccessMessage && (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px]">
+                      {resetSuccessMessage}
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block font-bold text-gray-700 mb-1">Reset Token / Code</label>
+                    <label className="block font-bold text-gray-700 mb-1">6-Digit Verification Code</label>
                     <input
                       type="text"
                       required
+                      maxLength={6}
+                      inputMode="numeric"
                       value={resetToken}
-                      onChange={(e) => setResetToken(e.target.value)}
-                      placeholder="Paste reset token"
-                      className="w-full p-2.5 rounded-xl border border-gray-300 font-mono text-[11px]"
+                      onChange={(e) => setResetToken(e.target.value.replace(/\D/g, ''))}
+                      placeholder="e.g. 482910"
+                      className="w-full p-2.5 rounded-xl border border-gray-300 font-mono text-center text-lg tracking-widest bg-white font-black text-[#113824]"
                     />
                   </div>
+
                   <div>
                     <label className="block font-bold text-gray-700 mb-1">New Password (min 8 chars)</label>
                     <input
@@ -465,13 +492,38 @@ function LoginForm() {
                       className="w-full p-2.5 rounded-xl border border-gray-300"
                     />
                   </div>
+
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Confirm New Password</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full p-2.5 rounded-xl border border-gray-300"
+                    />
+                  </div>
+
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3 rounded-xl bg-[#F59E0B] hover:bg-[#D97706] text-[#092115] font-black uppercase tracking-wider text-xs shadow"
+                    className="w-full py-3 rounded-xl bg-[#F59E0B] hover:bg-[#D97706] text-[#092115] font-black uppercase tracking-wider text-xs shadow transition-colors"
                   >
-                    {loading ? 'Updating Password...' : 'Save New Password'}
+                    {loading ? 'Resetting Password...' : 'Reset Password & Sign In'}
                   </button>
+
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      onClick={handleForgotPasswordRequest}
+                      disabled={loading}
+                      className="text-[11px] text-[#113824] hover:underline font-bold"
+                    >
+                      Didn&apos;t receive code? Resend OTP
+                    </button>
+                  </div>
                 </form>
               )}
 

@@ -37,6 +37,7 @@ import {
   Activity,
   MapPin,
   ChevronRight,
+  ChevronDown,
   PanelLeftClose,
   PanelLeft,
   CheckCircle2
@@ -50,63 +51,29 @@ interface NavItem {
   badge?: string;
 }
 
-const NAV_SECTIONS: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: 'COMMAND CENTER',
-    items: [
-      { title: 'Executive Overview', href: '/admin', icon: LayoutDashboard }
-    ]
-  },
-  {
-    label: 'SALES & LOGISTICS',
-    items: [
-      { title: 'Order Fulfillment', href: '/admin/orders', icon: ShoppingBag },
-      { title: 'Courier & Shipments', href: '/admin/orders?view=shipping', icon: Truck },
-      { title: 'Pakistan Locations & Delivery', href: '/admin/delivery/locations', icon: MapPin },
-      { title: 'Customer CRM', href: '/admin/customers', icon: Users }
-    ]
-  },
-  {
-    label: 'ORCHARD CATALOG',
-    items: [
-      { title: 'Products & Varieties', href: '/admin/products', icon: Package },
-      { title: 'Inventory & Crates', href: '/admin/inventory', icon: Layers },
-      { title: 'Dynamic Package Sizes', href: '/admin/products?tab=packages', icon: Layers },
-      { title: 'Pre-Order Campaigns', href: '/admin/preorders', icon: Calendar },
-      { title: 'Discounts & Promotions', href: '/admin/promotions', icon: Tag },
-      { title: 'Customer Reviews', href: '/admin/reviews', icon: Star }
-    ]
-  },
-  {
-    label: 'FINANCE & OPERATIONS',
-    items: [
-      { title: 'Payment Gateways & Proofs', href: '/admin/payments', icon: CreditCard },
-      { title: 'Finance & Ledger', href: '/admin/finance', icon: DollarSign },
-      { title: 'Farm Harvest Batches', href: '/admin/farm', icon: Sprout },
-      { title: 'Analytics & Reports', href: '/admin/analytics', icon: BarChart3 }
-    ]
-  },
-  {
-    label: 'SECURITY & GOVERNANCE',
-    items: [
-      { title: 'Admin Security & OTP', href: '/admin/security', icon: Lock },
-      { title: 'Admin User Management', href: '/admin/settings?tab=admins', icon: Users },
-      { title: 'Data Management', href: '/admin/data-management', icon: Database },
-      { title: 'System Health & Launch', href: '/admin/system-health', icon: Activity, badge: 'PROD' },
-      { title: 'Security & Audit Logs', href: '/admin/audit-logs', icon: Shield },
-      { title: 'Website Content (CMS)', href: '/admin/cms', icon: Layers },
-      { title: 'AI Assistant Control', href: '/admin/ai', icon: Sparkles }
-    ]
-  },
-  {
-    label: 'SETTINGS & OPERATIONS',
-    items: [
-      { title: 'Store Settings', href: '/admin/settings', icon: Settings },
-      { title: 'Feature Control (26 Flags)', href: '/admin/settings?tab=features', icon: Sliders },
-      { title: 'WhatsApp Business API', href: '/admin/settings?tab=whatsapp', icon: MessageSquare },
-      { title: 'Operations Guide', href: '/admin/guide', icon: FileText, badge: 'MANUAL' }
-    ]
-  }
+// 10 Core SaaS Dashboard Navigation Items
+const CORE_NAV_ITEMS: NavItem[] = [
+  { title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+  { title: 'Products', href: '/admin/products', icon: Package },
+  { title: 'Inventory', href: '/admin/inventory', icon: Layers },
+  { title: 'Orders', href: '/admin/orders', icon: ShoppingBag },
+  { title: 'Customers', href: '/admin/customers', icon: Users },
+  { title: 'Promotions', href: '/admin/promotions', icon: Tag },
+  { title: 'Content', href: '/admin/cms', icon: FileText },
+  { title: 'Settings', href: '/admin/settings', icon: Settings },
+  { title: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
+  { title: 'Security', href: '/admin/security', icon: Shield }
+];
+
+// Specialized Operations & Back-Office Tools
+const SECONDARY_NAV_ITEMS: NavItem[] = [
+  { title: 'Finance & Ledger', href: '/admin/finance', icon: DollarSign },
+  { title: 'Farm Harvest Batches', href: '/admin/farm', icon: Sprout },
+  { title: 'Payment Gateways', href: '/admin/payments', icon: CreditCard },
+  { title: 'Pakistan Delivery & Rates', href: '/admin/delivery/locations', icon: MapPin },
+  { title: 'System Health & Launch', href: '/admin/system-health', icon: Activity, badge: 'PROD' },
+  { title: 'Data Management', href: '/admin/data-management', icon: Database },
+  { title: 'Operations Guide', href: '/admin/guide', icon: FileText, badge: 'MANUAL' }
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -117,6 +84,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  // Active link helper
+  const isItemActive = (href: string) => {
+    if (href === '/admin') {
+      return pathname === '/admin';
+    }
+    const baseHref = href.split('?')[0];
+    return pathname === baseHref || pathname.startsWith(baseHref + '/');
+  };
+
+  const isSecondaryActive = SECONDARY_NAV_ITEMS.some((item) => isItemActive(item.href));
+  const [operationsOpen, setOperationsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isSecondaryActive) {
+      setOperationsOpen(true);
+    }
+  }, [isSecondaryActive]);
 
   useEffect(() => {
     if (!loading) {
@@ -181,15 +166,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs lg:hidden transition-opacity"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       {/* Left Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#071D12] text-[#FDFBF7] border-r border-emerald-900/50 flex flex-col justify-between transform transition-all duration-300 lg:translate-x-0 lg:static lg:inset-auto ${
-          sidebarOpen ? 'translate-x-0 w-68' : '-translate-x-full lg:translate-x-0'
+        className={`fixed inset-y-0 left-0 z-50 bg-[#071D12] text-[#FDFBF7] border-r border-emerald-900/50 flex flex-col justify-between transform transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-auto ${
+          sidebarOpen ? 'translate-x-0 w-72 shadow-2xl' : '-translate-x-full lg:translate-x-0'
         } ${isCollapsed ? 'lg:w-20' : 'lg:w-68'}`}
       >
         <div className="flex-1 flex flex-col min-h-0">
@@ -213,7 +199,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
             <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-1.5 text-stone-400 hover:text-white rounded-lg hover:bg-white/10"
+              className="lg:hidden p-2 text-stone-300 hover:text-white rounded-xl hover:bg-white/10"
+              aria-label="Close menu"
             >
               <X className="w-5 h-5" />
             </button>
@@ -235,50 +222,98 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           )}
 
           {/* Navigation Links */}
-          <nav className="flex-1 p-3 space-y-5 overflow-y-auto text-xs scrollbar-thin scrollbar-thumb-emerald-900">
-            {NAV_SECTIONS.map((sec, idx) => (
-              <div key={idx} className="space-y-1">
-                {!isCollapsed && (
-                  <div className="px-3 py-1 text-[10px] font-bold tracking-widest text-stone-400/80 uppercase">
-                    {sec.label}
-                  </div>
-                )}
-                {sec.items.map((item) => {
-                  const isActive =
-                    pathname === item.href ||
-                    (item.href !== '/admin' && pathname.startsWith(item.href.split('?')[0]));
-                  const Icon = item.icon;
+          <nav className="flex-1 p-3 space-y-3 overflow-y-auto text-xs scrollbar-thin scrollbar-thumb-emerald-900">
+            {/* Core SaaS Dashboard Items (10 Items) */}
+            <div className="space-y-1">
+              {!isCollapsed && (
+                <div className="px-3 py-1 text-[10px] font-bold tracking-widest text-stone-400/80 uppercase">
+                  Core Management
+                </div>
+              )}
+              {CORE_NAV_ITEMS.map((item) => {
+                const isActive = isItemActive(item.href);
+                const Icon = item.icon;
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setSidebarOpen(false)}
-                      title={isCollapsed ? item.title : undefined}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group ${
-                        isActive
-                          ? 'bg-amber-500 text-stone-950 font-bold shadow-sm'
-                          : 'text-stone-300 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-3 min-w-0">
-                        <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-stone-950' : 'text-stone-300 group-hover:text-amber-400'}`} />
-                        {!isCollapsed && <span className="truncate">{item.title}</span>}
-                      </div>
-                      {!isCollapsed && item.badge && (
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                            isActive ? 'bg-stone-950 text-amber-400' : 'bg-white/15 text-stone-200'
-                          }`}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setSidebarOpen(false)}
+                    title={isCollapsed ? item.title : undefined}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group min-h-[42px] cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-500 text-stone-950 font-bold shadow-sm'
+                        : 'text-stone-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-stone-950' : 'text-stone-300 group-hover:text-amber-400'}`} />
+                      {!isCollapsed && <span className="truncate">{item.title}</span>}
+                    </div>
+                    {!isCollapsed && item.badge && (
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                          isActive ? 'bg-stone-950 text-amber-400' : 'bg-white/15 text-stone-200'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Specialized Operations & Back-Office Tools */}
+            <div className="pt-2 border-t border-emerald-900/50 space-y-1">
+              {!isCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setOperationsOpen(!operationsOpen)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold tracking-widest text-stone-400/80 uppercase hover:text-stone-200 transition-colors cursor-pointer"
+                >
+                  <span>Operations & Tools</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${operationsOpen ? 'rotate-180' : ''}`} />
+                </button>
+              ) : null}
+
+              {(operationsOpen || isCollapsed) && (
+                <div className="space-y-1 pt-0.5">
+                  {SECONDARY_NAV_ITEMS.map((item) => {
+                    const isActive = isItemActive(item.href);
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setSidebarOpen(false)}
+                        title={isCollapsed ? item.title : undefined}
+                        className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all group min-h-[38px] cursor-pointer ${
+                          isActive
+                            ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
+                            : 'text-stone-400 hover:bg-white/5 hover:text-stone-200'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-amber-300'}`} />
+                          {!isCollapsed && <span className="truncate">{item.title}</span>}
+                        </div>
+                        {!isCollapsed && item.badge && (
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              isActive ? 'bg-amber-500 text-stone-950' : 'bg-white/10 text-stone-300'
+                            }`}
+                          >
+                            {item.badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </nav>
         </div>
 
@@ -439,7 +474,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
 
         {/* Dynamic Page Body with Responsive Max-Width */}
-        <main className="flex-1 w-full">{children}</main>
+        <main className="flex-1 w-full p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">{children}</main>
       </div>
 
       {/* Grounded Admin Executive AI Assistant Drawer */}

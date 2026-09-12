@@ -274,15 +274,24 @@ export default function CheckoutPage() {
           )}
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <a
+              href={`/api/orders/${orderConfirmed.orderId}/pdf?public=true`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-bold text-xs uppercase tracking-wider shadow transition-colors"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Download Order Slip (PDF)</span>
+            </a>
             <Link
               href={`/track-order?ref=${orderConfirmed.orderNumber}`}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-[#113824] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#195235] shadow"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-[#113824] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#195235] shadow transition-colors"
             >
               Track Live Shipment
             </Link>
             <Link
               href="/"
-              className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gray-100 text-gray-800 font-bold text-xs uppercase tracking-wider hover:bg-gray-200"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gray-100 text-gray-800 font-bold text-xs uppercase tracking-wider hover:bg-gray-200 transition-colors"
             >
               Return to Orchards
             </Link>

@@ -84,7 +84,7 @@ export async function createSession(userId: string, ipAddress = '', userAgent = 
   await stmt.run(sessionId, userId, tokenHash, ipAddress, userAgent, expiresAt);
 
   // Update last_login_at on user
-  await db.prepare(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`).run(userId);
+  await db.prepare(`UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`).run(userId);
 
   // Cryptographically sign the session cookie for tamper-proof Edge inspection
   const signedCookieValue = await signSessionToken(token, {

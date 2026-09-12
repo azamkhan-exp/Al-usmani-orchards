@@ -37,6 +37,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
 
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595.28, 841.89]); // A4 portrait in points (72 DPI)
+  let currentPage = page;
   const { width, height } = page.getSize();
 
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -204,7 +205,12 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     color: colorGold
   });
 
-  const orderDate = order.created_at ? order.created_at.substring(0, 10) : '2026-06-15';
+  const rawDate = order.created_at;
+  const orderDate = rawDate
+    ? (rawDate instanceof Date
+        ? rawDate.toISOString().substring(0, 10)
+        : String(rawDate).substring(0, 10))
+    : new Date().toISOString().substring(0, 10);
   page.drawText(`Booking Date: ${orderDate}`, {
     x: col2X + 12,
     y: currentY - 30,
@@ -307,9 +313,43 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const rowHeight = 22;
+
+    // Check if row exceeds remaining space on current page
+    if (currentY - rowHeight < 140) {
+      currentPage = pdfDoc.addPage([595.28, 841.89]);
+      currentPage.drawRectangle({ x: 0, y: 0, width, height, color: colorLightBg });
+      currentPage.drawRectangle({ x: 0, y: height - 12, width, height: 12, color: colorEmerald });
+
+      currentPage.drawText(`AL USMANI ORCHARDS — ORDER #${order.order_number} (Continued)`, {
+        x: 40,
+        y: height - 38,
+        size: 11,
+        font: fontBold,
+        color: colorEmerald
+      });
+
+      currentY = height - 55;
+
+      currentPage.drawRectangle({
+        x: tableX,
+        y: currentY - headerHeight,
+        width: tableWidth,
+        height: headerHeight,
+        color: colorEmerald
+      });
+
+      currentPage.drawText('HARVEST CULTIVAR', { x: tableX + 10, y: currentY - 15, size: 8, font: fontBold, color: rgb(1, 1, 1) });
+      currentPage.drawText('PACKAGE SIZE', { x: tableX + 180, y: currentY - 15, size: 8, font: fontBold, color: rgb(1, 1, 1) });
+      currentPage.drawText('UNIT PRICE', { x: tableX + 310, y: currentY - 15, size: 8, font: fontBold, color: rgb(1, 1, 1) });
+      currentPage.drawText('QTY', { x: tableX + 390, y: currentY - 15, size: 8, font: fontBold, color: rgb(1, 1, 1) });
+      currentPage.drawText('TOTAL (PKR)', { x: tableX + 440, y: currentY - 15, size: 8, font: fontBold, color: rgb(1, 1, 1) });
+
+      currentY -= headerHeight;
+    }
+
     const rowBg = i % 2 === 0 ? rgb(1, 1, 1) : rgb(248 / 255, 250 / 255, 252 / 255);
 
-    page.drawRectangle({
+    currentPage.drawRectangle({
       x: tableX,
       y: currentY - rowHeight,
       width: tableWidth,
@@ -319,7 +359,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
       borderWidth: 0.5
     });
 
-    page.drawText(item.variety_name || 'Fresh Mango Cultivar', {
+    currentPage.drawText(item.variety_name || 'Fresh Mango Cultivar', {
       x: tableX + 10,
       y: currentY - 15,
       size: 8.5,
@@ -327,7 +367,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
       color: colorDark
     });
 
-    page.drawText(item.package_name || `${item.unit_weight_kg || 5} KG Crate`, {
+    currentPage.drawText(item.package_name || `${item.unit_weight_kg || 5} KG Crate`, {
       x: tableX + 180,
       y: currentY - 15,
       size: 8,
@@ -335,7 +375,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
       color: colorDark
     });
 
-    page.drawText(formatPKR(item.unit_price), {
+    currentPage.drawText(formatPKR(item.unit_price), {
       x: tableX + 310,
       y: currentY - 15,
       size: 8,
@@ -343,7 +383,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
       color: colorDark
     });
 
-    page.drawText(`${item.quantity} crate${item.quantity > 1 ? 's' : ''}`, {
+    currentPage.drawText(`${item.quantity} crate${item.quantity > 1 ? 's' : ''}`, {
       x: tableX + 390,
       y: currentY - 15,
       size: 8,
@@ -351,7 +391,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
       color: colorDark
     });
 
-    page.drawText(formatPKR(item.subtotal), {
+    currentPage.drawText(formatPKR(item.subtotal), {
       x: tableX + 440,
       y: currentY - 15,
       size: 8.5,
@@ -362,30 +402,38 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     currentY -= rowHeight;
   }
 
+  // Ensure enough room for financial totals and assurance seal
+  if (currentY < 180) {
+    currentPage = pdfDoc.addPage([595.28, 841.89]);
+    currentPage.drawRectangle({ x: 0, y: 0, width, height, color: colorLightBg });
+    currentPage.drawRectangle({ x: 0, y: height - 12, width, height: 12, color: colorEmerald });
+    currentY = height - 50;
+  }
+
   currentY -= 15;
 
   // Financial Totals Summary (Right-aligned card)
   const summaryWidth = 220;
   const summaryX = width - 40 - summaryWidth;
 
-  page.drawText(`Subtotal:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorMuted });
-  page.drawText(formatPKR(order.subtotal), { x: width - 40 - fontRegular.widthOfTextAtSize(formatPKR(order.subtotal), 8.5), y: currentY, size: 8.5, font: fontRegular, color: colorDark });
+  currentPage.drawText(`Subtotal:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorMuted });
+  currentPage.drawText(formatPKR(order.subtotal), { x: width - 40 - fontRegular.widthOfTextAtSize(formatPKR(order.subtotal), 8.5), y: currentY, size: 8.5, font: fontRegular, color: colorDark });
   currentY -= 14;
 
   if (order.discount_amount > 0) {
     const discountText = `- ${formatPKR(order.discount_amount)}`;
-    page.drawText(`Discounts & Offers:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorGold });
-    page.drawText(discountText, { x: width - 40 - fontRegular.widthOfTextAtSize(discountText, 8.5), y: currentY, size: 8.5, font: fontBold, color: colorGold });
+    currentPage.drawText(`Discounts & Offers:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorGold });
+    currentPage.drawText(discountText, { x: width - 40 - fontRegular.widthOfTextAtSize(discountText, 8.5), y: currentY, size: 8.5, font: fontBold, color: colorGold });
     currentY -= 14;
   }
 
   const shippingText = order.shipping_fee === 0 ? 'FREE' : formatPKR(order.shipping_fee);
-  page.drawText(`Cold-Chain Dispatch Fee:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorMuted });
-  page.drawText(shippingText, { x: width - 40 - fontRegular.widthOfTextAtSize(shippingText, 8.5), y: currentY, size: 8.5, font: fontRegular, color: colorDark });
+  currentPage.drawText(`Cold-Chain Dispatch Fee:`, { x: summaryX, y: currentY, size: 8.5, font: fontRegular, color: colorMuted });
+  currentPage.drawText(shippingText, { x: width - 40 - fontRegular.widthOfTextAtSize(shippingText, 8.5), y: currentY, size: 8.5, font: fontRegular, color: colorDark });
   currentY -= 18;
 
   // Total Payable Banner
-  page.drawRectangle({
+  currentPage.drawRectangle({
     x: summaryX - 8,
     y: currentY - 18,
     width: summaryWidth + 8,
@@ -393,7 +441,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     color: colorEmerald
   });
 
-  page.drawText('TOTAL AMOUNT DUE:', {
+  currentPage.drawText('TOTAL AMOUNT DUE:', {
     x: summaryX,
     y: currentY - 10,
     size: 9,
@@ -402,7 +450,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
   });
 
   const totalStr = formatPKR(order.total_amount);
-  page.drawText(totalStr, {
+  currentPage.drawText(totalStr, {
     x: width - 40 - fontBold.widthOfTextAtSize(totalStr, 11) - 4,
     y: currentY - 10,
     size: 11,
@@ -413,7 +461,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
   currentY -= 50;
 
   // Quality & Origin Assurance Seal
-  page.drawRectangle({
+  currentPage.drawRectangle({
     x: 40,
     y: currentY - 48,
     width: width - 80,
@@ -423,7 +471,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     borderWidth: 1
   });
 
-  page.drawText('OFFICIAL ORCHARD INTEGRITY & CARRIER SEAL', {
+  currentPage.drawText('OFFICIAL ORCHARD INTEGRITY & CARRIER SEAL', {
     x: 52,
     y: currentY - 16,
     size: 8,
@@ -431,7 +479,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     color: colorEmerald
   });
 
-  page.drawText(
+  currentPage.drawText(
     'Certified 100% Tree-Ripened • Zero Calcium Carbide Chemicals • Dawn-Plucked with Stalks Intact',
     {
       x: 52,
@@ -442,7 +490,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     }
   );
 
-  page.drawText(
+  currentPage.drawText(
     'Temperature-stabilized ventilated cartons. Inspect crate seal upon doorstep handover.',
     {
       x: 52,
@@ -453,22 +501,26 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     }
   );
 
-  // Footer (Bottom of page)
-  page.drawText('Al Usmani Orchards (Private) Limited — Pakistan National Tax No: 8492048-2', {
-    x: 40,
-    y: 28,
-    size: 7,
-    font: fontRegular,
-    color: colorMuted
-  });
+  // Footer on all pages with page numbers
+  const allPages = pdfDoc.getPages();
+  for (let idx = 0; idx < allPages.length; idx++) {
+    const p = allPages[idx];
+    p.drawText(`Al Usmani Orchards (Private) Limited — Pakistan National Tax No: 8492048-2 • Page ${idx + 1} of ${allPages.length}`, {
+      x: 40,
+      y: 28,
+      size: 7,
+      font: fontRegular,
+      color: colorMuted
+    });
 
-  page.drawText('Helpline & WhatsApp: +92 300 8472910 • Web: https://alusmaniorchards.pk', {
-    x: 40,
-    y: 18,
-    size: 7,
-    font: fontBold,
-    color: colorEmerald
-  });
+    p.drawText('Helpline & WhatsApp: +92 300 8472910 • Web: https://alusmaniorchards.pk', {
+      x: 40,
+      y: 18,
+      size: 7,
+      font: fontBold,
+      color: colorEmerald
+    });
+  }
 
   return await pdfDoc.save();
 }
