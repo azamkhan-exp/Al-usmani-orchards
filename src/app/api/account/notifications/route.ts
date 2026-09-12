@@ -24,7 +24,7 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const customer = db.prepare('SELECT notes FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT notes FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
 
     let preferences = DEFAULT_PREFERENCES;
     if (customer?.notes) {
@@ -57,7 +57,7 @@ export async function PUT(req: NextRequest) {
     const { orderUpdates, deliveryUpdates, promotionalOffers } = body;
 
     const db = getDatabase();
-    const customer = db.prepare('SELECT id, notes FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT id, notes FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
 
     let currentNotesObj: Record<string, any> = {};
     if (customer?.notes) {
@@ -77,7 +77,7 @@ export async function PUT(req: NextRequest) {
     const newNotes = JSON.stringify(currentNotesObj);
 
     if (customer?.id) {
-      db.prepare('UPDATE customers SET notes = ? WHERE id = ?').run(newNotes, customer.id);
+      await db.prepare('UPDATE customers SET notes = ? WHERE id = ?').run(newNotes, customer.id);
     }
 
     return NextResponse.json({

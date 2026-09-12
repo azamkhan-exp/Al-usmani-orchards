@@ -188,9 +188,10 @@ export async function getDatabaseOverview(): Promise<DatabaseOverview> {
 
   const pkgStats = await db.prepare(`
     SELECT
-      COUNT(*) as package_sizes,
-      COALESCE(SUM(current_stock * weight_kg), 0) as total_stock_kg
-    FROM package_sizes
+      COUNT(ps.id) as package_sizes,
+      COALESCE(SUM(i.available_stock * ps.weight_kg), 0) as total_stock_kg
+    FROM package_sizes ps
+    LEFT JOIN inventory i ON i.package_size_id = ps.id
   `).get() as any;
 
   // Customer Reviews
@@ -681,12 +682,12 @@ export async function executeDataRetentionCleanup(): Promise<{ expired_sessions:
 
   const delSessions = await db.prepare(`
     DELETE FROM user_sessions 
-    WHERE expires_at < (NOW() - ($1 || ' days')::interval)
+    WHERE expires_at < (NOW() - (? || ' days')::interval)
   `).run(sessDays);
 
   const delNotifs = await db.prepare(`
     DELETE FROM notification_logs 
-    WHERE created_at < (NOW() - ($1 || ' days')::interval)
+    WHERE created_at < (NOW() - (? || ' days')::interval)
       AND order_id IS NULL
   `).run(notifDays);
 

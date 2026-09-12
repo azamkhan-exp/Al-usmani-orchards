@@ -13,9 +13,16 @@ export default function AdminCustomersPage() {
     fetch('/api/admin/customers')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) setCustomers(data.customers);
+        if (data && data.success && Array.isArray(data.customers)) {
+          setCustomers(data.customers);
+        } else {
+          setCustomers([]);
+        }
       })
-      .catch((e) => console.error(e))
+      .catch((e) => {
+        console.error(e);
+        setCustomers([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -44,33 +51,47 @@ export default function AdminCustomersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {customers.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="p-3.5">
-                    <div className="font-bold text-[#113824]">{c.full_name}</div>
-                    <div className="text-[11px] text-gray-500">{c.email} • {c.phone}</div>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-gray-400 font-medium">
+                    Loading patron CRM directory...
                   </td>
-                  <td className="p-3.5 text-gray-600">{c.city || 'Pakistan'}</td>
-                  <td className="p-3.5">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        c.segment === 'VIP'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                          : c.segment === 'HIGH_VALUE'
-                          ? 'bg-purple-100 text-purple-900'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {c.segment}
-                    </span>
-                  </td>
-                  <td className="p-3.5 font-bold text-gray-900">{c.real_orders_count || c.orders_count} orders</td>
-                  <td className="p-3.5 font-black text-[#113824]">
-                    {formatPKR(c.real_total_spent || c.total_spent || 0)}
-                  </td>
-                  <td className="p-3.5 font-mono text-gray-500">{c.referral_code || '---'}</td>
                 </tr>
-              ))}
+              ) : customers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-gray-400 font-medium">
+                    No customer records found.
+                  </td>
+                </tr>
+              ) : (
+                customers.map((c) => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <td className="p-3.5">
+                      <div className="font-bold text-[#113824]">{c.full_name}</div>
+                      <div className="text-[11px] text-gray-500">{c.email} • {c.phone}</div>
+                    </td>
+                    <td className="p-3.5 text-gray-600">{c.city || 'Pakistan'}</td>
+                    <td className="p-3.5">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          c.segment === 'VIP'
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : c.segment === 'HIGH_VALUE'
+                            ? 'bg-purple-100 text-purple-900'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {c.segment}
+                      </span>
+                    </td>
+                    <td className="p-3.5 font-bold text-gray-900">{c.real_orders_count || c.orders_count} orders</td>
+                    <td className="p-3.5 font-black text-[#113824]">
+                      {formatPKR(c.real_total_spent || c.total_spent || 0)}
+                    </td>
+                    <td className="p-3.5 font-mono text-gray-500">{c.referral_code || '---'}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -25,14 +25,24 @@ export default function AdminFarmPage() {
     fetch('/api/admin/farm')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) {
-          setOrchards(data.orchards);
-          setBlocks(data.blocks);
-          setBatches(data.batches);
-          if (data.orchards.length > 0) setOrchardId(data.orchards[0].id);
+        if (data && data.success) {
+          const orchs = Array.isArray(data.orchards) ? data.orchards : [];
+          setOrchards(orchs);
+          setBlocks(Array.isArray(data.blocks) ? data.blocks : []);
+          setBatches(Array.isArray(data.batches) ? data.batches : []);
+          if (orchs.length > 0) setOrchardId(orchs[0].id);
+        } else {
+          setOrchards([]);
+          setBlocks([]);
+          setBatches([]);
         }
       })
-      .catch((e) => console.error(e))
+      .catch((e) => {
+        console.error(e);
+        setOrchards([]);
+        setBlocks([]);
+        setBatches([]);
+      })
       .finally(() => setLoading(false));
   };
 

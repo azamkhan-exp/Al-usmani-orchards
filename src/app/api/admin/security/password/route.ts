@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const userRow = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as any;
+    const userRow = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as any;
 
     if (!userRow || !verifyPassword(current_password, userRow.password_hash)) {
       return NextResponse.json(
@@ -48,9 +48,9 @@ export async function POST(req: NextRequest) {
     }
 
     const newHash = hashPassword(new_password);
-    db.prepare(`
+    await db.prepare(`
       UPDATE users 
-      SET password_hash = ?, updated_at = datetime('now')
+      SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(newHash, user.id);
 

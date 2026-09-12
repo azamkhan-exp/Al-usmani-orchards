@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const user = db.prepare(`SELECT id, password_hash FROM users WHERE id = ?`).get(currentUser.id) as any;
+    const user = await db.prepare(`SELECT id, password_hash FROM users WHERE id = ?`).get(currentUser.id) as any;
 
     if (!user) {
       return NextResponse.json({ error: 'User record not found.' }, { status: 404 });
@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
     }
 
     const newHash = hashPassword(newPassword);
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
-      SET password_hash = ?, updated_at = datetime('now')
+      SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(newHash, user.id);
 

@@ -80,7 +80,7 @@ export async function PUT(req: NextRequest) {
       }
 
       const newHash = hashPassword(newPassword);
-      await db.prepare(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(newHash, user.id);
+      await db.prepare(`UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newHash, user.id);
 
       await recordAuditLog({
         userId: user.id,
@@ -112,13 +112,13 @@ export async function PUT(req: NextRequest) {
       if (existing) {
         await db.prepare(`
           UPDATE store_settings 
-          SET value_json = ?, updated_at = datetime('now') 
+          SET value_json = ?, updated_at = CURRENT_TIMESTAMP 
           WHERE key = ?
         `).run(valueJson, section);
       } else {
         await db.prepare(`
           INSERT INTO store_settings (id, key, value_json, updated_at)
-          VALUES (?, ?, ?, datetime('now'))
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         `).run(`set-${section}`, section, valueJson);
       }
 

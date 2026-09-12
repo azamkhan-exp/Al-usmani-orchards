@@ -116,18 +116,18 @@ export async function getCashFlowTrends(): Promise<Array<{ month: string; inflow
 
   // Monthly inflow from payments
   const inflows = await db.prepare(`
-    SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total_inflow
+    SELECT TO_CHAR(created_at, 'YYYY-MM') as month, SUM(amount) as total_inflow
     FROM payments
     WHERE status = 'PAID'
-    GROUP BY month
+    GROUP BY TO_CHAR(created_at, 'YYYY-MM')
     ORDER BY month ASC
   `).all() as Array<{ month: string; total_inflow: number }>;
 
   // Monthly outflow from expenses
   const outflows = await db.prepare(`
-    SELECT strftime('%Y-%m', expense_date) as month, SUM(amount) as total_outflow
+    SELECT TO_CHAR(expense_date::timestamp, 'YYYY-MM') as month, SUM(amount) as total_outflow
     FROM expenses
-    GROUP BY month
+    GROUP BY TO_CHAR(expense_date::timestamp, 'YYYY-MM')
     ORDER BY month ASC
   `).all() as Array<{ month: string; total_outflow: number }>;
 

@@ -294,7 +294,7 @@ export async function PUT(req: NextRequest) {
       if (imageUrl) {
         await db.prepare(`
           UPDATE products
-          SET primary_image = ?, updated_at = datetime('now')
+          SET primary_image = ?, updated_at = CURRENT_TIMESTAMP
           WHERE variety_id = ?
         `).run(imageUrl, id);
       }
@@ -332,7 +332,7 @@ export async function PUT(req: NextRequest) {
           is_featured = COALESCE(?, is_featured),
           is_preorder_active = COALESCE(?, is_preorder_active),
           primary_image = COALESCE(?, primary_image),
-          updated_at = datetime('now')
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         name ?? null,

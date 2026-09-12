@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const db = getDatabase();
 
     // Query by order_number or tracking_number
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT 
         o.id, o.order_number, o.status, o.subtotal, o.discount_amount,
         o.shipping_fee, o.total_amount, o.payment_method, o.payment_status,
@@ -31,27 +31,27 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch items
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT variety_name, package_name, unit_weight_kg, unit_price, quantity, subtotal
       FROM order_items
       WHERE order_id = ?
     `).all(order.id);
 
     // Fetch timeline
-    const timeline = db.prepare(`
+    const timeline = await db.prepare(`
       SELECT status, title, description, created_at
       FROM order_timeline
       WHERE order_id = ?
-      ORDER BY datetime(created_at) ASC
+      ORDER BY created_at ASC
     `).all(order.id);
 
     // Fetch shipment tracking events if available
-    const trackingEvents = db.prepare(`
+    const trackingEvents = await db.prepare(`
       SELECT ste.event_time, ste.status, ste.location, ste.description
       FROM shipments s
       JOIN shipment_tracking_events ste ON ste.shipment_id = s.id
       WHERE s.order_id = ?
-      ORDER BY datetime(ste.event_time) ASC
+      ORDER BY ste.event_time ASC
     `).all(order.id);
 
     return NextResponse.json({

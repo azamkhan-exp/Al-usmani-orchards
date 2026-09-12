@@ -344,8 +344,8 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
     // Group by Date (YYYY-MM-DD)
     timeSeriesSql = `
       SELECT 
-        strftime('%Y-%m-%d', created_at) as date_key,
-        strftime('%d %b', created_at) as display_label,
+        TO_CHAR(created_at, 'YYYY-MM-DD') as date_key,
+        TO_CHAR(created_at, 'DD Mon') as display_label,
         COALESCE(SUM(total_amount), 0) as revenue,
         COUNT(id) as orders,
         ROUND(COALESCE(AVG(total_amount), 0)) as aov
@@ -353,15 +353,15 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
       WHERE created_at >= ? AND created_at <= ?
         AND status NOT IN ('CANCELLED', 'FAILED')
         AND ${orderFilter}
-      GROUP BY date_key
+      GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD'), TO_CHAR(created_at, 'DD Mon')
       ORDER BY date_key ASC
     `;
   } else {
     // Group by Month (YYYY-MM)
     timeSeriesSql = `
       SELECT 
-        strftime('%Y-%m', created_at) as date_key,
-        strftime('%b %Y', created_at) as display_label,
+        TO_CHAR(created_at, 'YYYY-MM') as date_key,
+        TO_CHAR(created_at, 'Mon YYYY') as display_label,
         COALESCE(SUM(total_amount), 0) as revenue,
         COUNT(id) as orders,
         ROUND(COALESCE(AVG(total_amount), 0)) as aov
@@ -369,7 +369,7 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
       WHERE created_at >= ? AND created_at <= ?
         AND status NOT IN ('CANCELLED', 'FAILED')
         AND ${orderFilter}
-      GROUP BY date_key
+      GROUP BY TO_CHAR(created_at, 'YYYY-MM'), TO_CHAR(created_at, 'Mon YYYY')
       ORDER BY date_key ASC
     `;
   }
@@ -399,7 +399,7 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
       AND o.created_at >= ? AND o.created_at <= ?
       AND o.status NOT IN ('CANCELLED', 'FAILED')
       AND ${orderFilterAlias}
-    GROUP BY v.id, v.name
+    GROUP BY v.id, v.name, v.origin_city, v.image_url
     ORDER BY revenue DESC
   `).all(range.currentStart, range.currentEnd) as Array<{
     variety_id: string;
@@ -482,7 +482,7 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
       JOIN package_sizes ps ON ps.id = i.package_size_id
       GROUP BY ps.product_id
     ) inv ON inv.product_id = p.id
-    GROUP BY p.id, p.name
+    GROUP BY p.id, p.name, v.name, p.primary_image, p.grade, inv.available_stock, p.status
     ORDER BY revenue DESC
   `).all(range.currentStart, range.currentEnd) as Array<{
     id: string;
@@ -619,19 +619,25 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
   // 12. GEOGRAPHICAL ANALYTICS (Orders by City, Province, District)
   const cityAnalytics = await db.prepare(`
     SELECT 
-      COALESCE(
-        NULLIF(TRIM(json_extract(o.shipping_address_json, '$.city')), ''),
-        NULLIF(TRIM(c.city), ''),
-        'Other / Unspecified'
-      ) as city,
-      COUNT(o.id) as orders_count,
-      COALESCE(SUM(o.total_amount), 0) as total_revenue
-    FROM orders o
-    LEFT JOIN customers c ON c.id = o.customer_id
-    WHERE o.created_at >= ? AND o.created_at <= ?
-      AND o.status NOT IN ('CANCELLED', 'FAILED')
-      AND ${orderFilterAlias}
-    GROUP BY city
+      sub.city,
+      COUNT(sub.id) as orders_count,
+      COALESCE(SUM(sub.total_amount), 0) as total_revenue
+    FROM (
+      SELECT 
+        o.id,
+        o.total_amount,
+        COALESCE(
+          NULLIF(TRIM(json_extract(o.shipping_address_json, '$.city')), ''),
+          NULLIF(TRIM(c.city), ''),
+          'Other / Unspecified'
+        ) as city
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE o.created_at >= ? AND o.created_at <= ?
+        AND o.status NOT IN ('CANCELLED', 'FAILED')
+        AND ${orderFilterAlias}
+    ) sub
+    GROUP BY sub.city
     ORDER BY total_revenue DESC
     LIMIT 10
   `).all(range.currentStart, range.currentEnd) as Array<{
@@ -649,17 +655,23 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
   // Province Breakdown
   const provinceAnalytics = await db.prepare(`
     SELECT 
-      COALESCE(
-        NULLIF(TRIM(json_extract(o.shipping_address_json, '$.province')), ''),
-        'Punjab'
-      ) as province,
-      COUNT(o.id) as orders_count,
-      COALESCE(SUM(o.total_amount), 0) as total_revenue
-    FROM orders o
-    WHERE o.created_at >= ? AND o.created_at <= ?
-      AND o.status NOT IN ('CANCELLED', 'FAILED')
-      AND ${orderFilterAlias}
-    GROUP BY province
+      sub.province,
+      COUNT(sub.id) as orders_count,
+      COALESCE(SUM(sub.total_amount), 0) as total_revenue
+    FROM (
+      SELECT 
+        o.id,
+        o.total_amount,
+        COALESCE(
+          NULLIF(TRIM(json_extract(o.shipping_address_json, '$.province')), ''),
+          'Punjab'
+        ) as province
+      FROM orders o
+      WHERE o.created_at >= ? AND o.created_at <= ?
+        AND o.status NOT IN ('CANCELLED', 'FAILED')
+        AND ${orderFilterAlias}
+    ) sub
+    GROUP BY sub.province
     ORDER BY total_revenue DESC
   `).all(range.currentStart, range.currentEnd) as Array<{
     province: string;
@@ -676,22 +688,29 @@ export async function getAnalyticsDashboard(filter: DateRangeFilter) {
   // District Breakdown
   const districtAnalytics = await db.prepare(`
     SELECT 
-      COALESCE(
-        NULLIF(TRIM(json_extract(o.shipping_address_json, '$.district')), ''),
-        NULLIF(TRIM(json_extract(o.shipping_address_json, '$.city')), ''),
-        'Unspecified District'
-      ) as district,
-      COALESCE(
-        NULLIF(TRIM(json_extract(o.shipping_address_json, '$.province')), ''),
-        'Punjab'
-      ) as province,
-      COUNT(o.id) as orders_count,
-      COALESCE(SUM(o.total_amount), 0) as total_revenue
-    FROM orders o
-    WHERE o.created_at >= ? AND o.created_at <= ?
-      AND o.status NOT IN ('CANCELLED', 'FAILED')
-      AND ${orderFilterAlias}
-    GROUP BY district, province
+      sub.district,
+      sub.province,
+      COUNT(sub.id) as orders_count,
+      COALESCE(SUM(sub.total_amount), 0) as total_revenue
+    FROM (
+      SELECT 
+        o.id,
+        o.total_amount,
+        COALESCE(
+          NULLIF(TRIM(json_extract(o.shipping_address_json, '$.district')), ''),
+          NULLIF(TRIM(json_extract(o.shipping_address_json, '$.city')), ''),
+          'Unspecified District'
+        ) as district,
+        COALESCE(
+          NULLIF(TRIM(json_extract(o.shipping_address_json, '$.province')), ''),
+          'Punjab'
+        ) as province
+      FROM orders o
+      WHERE o.created_at >= ? AND o.created_at <= ?
+        AND o.status NOT IN ('CANCELLED', 'FAILED')
+        AND ${orderFilterAlias}
+    ) sub
+    GROUP BY sub.district, sub.province
     ORDER BY total_revenue DESC
     LIMIT 10
   `).all(range.currentStart, range.currentEnd) as Array<{
@@ -920,7 +939,7 @@ export async function generateReportData(
           JOIN package_sizes ps ON ps.id = i.package_size_id
           GROUP BY ps.product_id
         ) inv ON inv.product_id = p.id
-        GROUP BY p.id, p.name
+        GROUP BY p.id, p.name, v.name, p.grade, p.status, inv.available_stock
         ORDER BY revenue DESC
       `).all(range.currentStart, range.currentEnd) as any[];
 
@@ -1057,7 +1076,7 @@ export async function generateReportData(
           AND o.created_at >= ? AND o.created_at <= ?
           AND o.status NOT IN ('CANCELLED', 'FAILED')
           AND ${orderFilterAlias}
-        GROUP BY p.id, p.code
+        GROUP BY p.id, p.code, p.name, p.discount_type, p.discount_value, p.times_used
         ORDER BY total_discounts_given DESC
       `).all(range.currentStart, range.currentEnd) as any[];
 

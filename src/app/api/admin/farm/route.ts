@@ -15,8 +15,8 @@ export async function GET() {
 
     const db = getDatabase();
 
-    const orchards = db.prepare('SELECT * FROM farm_orchards ORDER BY total_acres DESC').all();
-    const blocks = db.prepare(`
+    const orchards = await db.prepare('SELECT * FROM farm_orchards ORDER BY total_acres DESC').all();
+    const blocks = await db.prepare(`
       SELECT fb.*, fo.name as orchard_name, v.name as variety_name
       FROM farm_blocks fb
       JOIN farm_orchards fo ON fo.id = fb.orchard_id
@@ -24,7 +24,7 @@ export async function GET() {
       ORDER BY fb.block_code ASC
     `).all();
 
-    const batches = db.prepare(`
+    const batches = await db.prepare(`
       SELECT 
         hb.*,
         v.name as variety_name,
@@ -34,7 +34,7 @@ export async function GET() {
       JOIN mango_varieties v ON v.id = hb.variety_id
       JOIN farm_orchards fo ON fo.id = hb.orchard_id
       LEFT JOIN farm_blocks fb ON fb.id = hb.block_id
-      ORDER BY datetime(hb.harvest_date) DESC
+      ORDER BY hb.harvest_date DESC
     `).all();
 
     return NextResponse.json({ success: true, orchards, blocks, batches });

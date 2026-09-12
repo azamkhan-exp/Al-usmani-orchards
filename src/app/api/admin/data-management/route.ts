@@ -29,10 +29,18 @@ export async function GET(req: NextRequest) {
       ensureDatabaseReady();
       const db = getDatabase();
       const rows = await db.prepare(`
-        SELECT id, order_number, customer_name, total_amount, created_at, status, archived_at
-        FROM orders 
-        WHERE is_archived = 1 
-        ORDER BY archived_at DESC 
+        SELECT 
+          o.id, 
+          o.order_number, 
+          COALESCE(c.full_name, o.guest_name, 'Guest') as customer_name, 
+          o.total_amount, 
+          o.created_at, 
+          o.status, 
+          o.archived_at
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE o.is_archived = 1 
+        ORDER BY o.archived_at DESC 
         LIMIT 50
       `).all();
       return NextResponse.json({ success: true, orders: rows });

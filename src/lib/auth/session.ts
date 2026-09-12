@@ -125,7 +125,7 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
       SELECT u.id, u.username, u.name, u.email, u.role, u.phone, u.avatar_url, u.email_verified, u.mfa_enabled, u.status
       FROM user_sessions s
       JOIN users u ON u.id = s.user_id
-      WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.status = 'ACTIVE'
+      WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP AND u.status = 'ACTIVE'
     `);
 
     const user = await stmt.get(tokenHash) as AuthenticatedUser | undefined;
@@ -164,7 +164,7 @@ export async function getUserActiveSessions(userId: string): Promise<UserSession
   const rows = await db.prepare(`
     SELECT id, ip_address, user_agent, created_at, expires_at, token_hash
     FROM user_sessions
-    WHERE user_id = ? AND expires_at > datetime('now')
+    WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
     ORDER BY created_at DESC
   `).all(userId) as Array<{
     id: string;

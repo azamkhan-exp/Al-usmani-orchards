@@ -98,7 +98,7 @@ export async function performSystemHealthCheck(): Promise<HealthCheckResult> {
 
   // 2. Security Diagnostic
   const secSettings = await getAdminSecuritySettings();
-  const activeSessionsRow = await db.prepare("SELECT count(*) as c FROM user_sessions WHERE expires_at > datetime('now')").get() as any;
+  const activeSessionsRow = await db.prepare("SELECT count(*) as c FROM user_sessions WHERE expires_at > CURRENT_TIMESTAMP").get() as any;
   const activeSessions = Number(activeSessionsRow?.c || 0);
 
   const superAdminsRow = await db.prepare("SELECT count(*) as c FROM users WHERE role = 'SUPER_ADMIN' AND status = 'ACTIVE'").get() as any;

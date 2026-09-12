@@ -16,7 +16,7 @@ export async function GET() {
     const db = getDatabase();
 
     // Inventory levels by package size
-    const inventoryList = db.prepare(`
+    const inventoryList = await db.prepare(`
       SELECT 
         inv.id as inventory_id,
         inv.total_stock,
@@ -39,7 +39,7 @@ export async function GET() {
     `).all();
 
     // Harvest Batches
-    const batches = db.prepare(`
+    const batches = await db.prepare(`
       SELECT 
         hb.*,
         v.name as variety_name,
@@ -49,11 +49,11 @@ export async function GET() {
       JOIN mango_varieties v ON v.id = hb.variety_id
       JOIN farm_orchards fo ON fo.id = hb.orchard_id
       LEFT JOIN farm_blocks fb ON fb.id = hb.block_id
-      ORDER BY datetime(hb.harvest_date) DESC
+      ORDER BY hb.harvest_date DESC
     `).all();
 
     // Recent inventory transactions (Ledger)
-    const transactions = db.prepare(`
+    const transactions = await db.prepare(`
       SELECT 
         it.*,
         ps.name as package_name,
@@ -61,7 +61,7 @@ export async function GET() {
       FROM inventory_transactions it
       JOIN package_sizes ps ON ps.id = it.package_size_id
       JOIN products p ON p.id = ps.product_id
-      ORDER BY datetime(it.created_at) DESC
+      ORDER BY it.created_at DESC
       LIMIT 50
     `).all();
 
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Package size, new stock, and reason are required' }, { status: 400 });
     }
 
-    adjustStockManually({
+    await adjustStockManually({
       packageSizeId,
       newAvailableStock: Number(newAvailableStock),
       reason: reason.trim(),
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       userId: user.name
     });
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'STOCK_MANUALLY_ADJUSTED',

@@ -33,13 +33,22 @@ export default function AdminInventoryPage() {
     fetch('/api/admin/inventory')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) {
-          setInventory(data.inventory);
-          setBatches(data.batches);
-          setTransactions(data.transactions);
+        if (data && data.success) {
+          setInventory(Array.isArray(data.inventory) ? data.inventory : []);
+          setBatches(Array.isArray(data.batches) ? data.batches : []);
+          setTransactions(Array.isArray(data.transactions) ? data.transactions : []);
+        } else {
+          setInventory([]);
+          setBatches([]);
+          setTransactions([]);
         }
       })
-      .catch((e) => console.error(e))
+      .catch((e) => {
+        console.error(e);
+        setInventory([]);
+        setBatches([]);
+        setTransactions([]);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -121,41 +130,55 @@ export default function AdminInventoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {inventory.map((inv) => (
-                  <tr key={inv.inventory_id} className="hover:bg-gray-50">
-                    <td className="p-3">
-                      <span className="font-bold text-[#113824]">{inv.variety_name}</span>
-                      <span className="text-gray-500 ml-1.5">({inv.package_name})</span>
-                    </td>
-                    <td className="p-3 font-medium">{inv.weight_kg} KG</td>
-                    <td className="p-3">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full font-black text-xs ${
-                          inv.available_stock <= inv.low_stock_threshold
-                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                            : 'bg-emerald-100 text-emerald-900'
-                        }`}
-                      >
-                        {inv.available_stock} boxes
-                      </span>
-                    </td>
-                    <td className="p-3 font-medium text-gray-600">{inv.reserved_stock} boxes</td>
-                    <td className="p-3 font-bold text-gray-900">{inv.sold_stock} boxes</td>
-                    <td className="p-3 text-gray-500">Min {inv.low_stock_threshold}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => {
-                          setSelectedItem(inv);
-                          setNewStock(inv.available_stock.toString());
-                          setAdjustModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 rounded bg-gray-100 hover:bg-[#113824] hover:text-white text-[#113824] font-bold text-[11px] transition-colors"
-                      >
-                        Adjust Stock
-                      </button>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-gray-400 font-medium">
+                      Loading inventory records...
                     </td>
                   </tr>
-                ))}
+                ) : inventory.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-gray-400 font-medium">
+                      No inventory records found.
+                    </td>
+                  </tr>
+                ) : (
+                  inventory.map((inv) => (
+                    <tr key={inv.inventory_id} className="hover:bg-gray-50">
+                      <td className="p-3">
+                        <span className="font-bold text-[#113824]">{inv.variety_name}</span>
+                        <span className="text-gray-500 ml-1.5">({inv.package_name})</span>
+                      </td>
+                      <td className="p-3 font-medium">{inv.weight_kg} KG</td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded-full font-black text-xs ${
+                            inv.available_stock <= inv.low_stock_threshold
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : 'bg-emerald-100 text-emerald-900'
+                          }`}
+                        >
+                          {inv.available_stock} boxes
+                        </span>
+                      </td>
+                      <td className="p-3 font-medium text-gray-600">{inv.reserved_stock} boxes</td>
+                      <td className="p-3 font-bold text-gray-900">{inv.sold_stock} boxes</td>
+                      <td className="p-3 text-gray-500">Min {inv.low_stock_threshold}</td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => {
+                            setSelectedItem(inv);
+                            setNewStock(inv.available_stock.toString());
+                            setAdjustModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 rounded bg-gray-100 hover:bg-[#113824] hover:text-white text-[#113824] font-bold text-[11px] transition-colors"
+                        >
+                          Adjust Stock
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -185,24 +208,38 @@ export default function AdminInventoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {batches.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="p-3 font-mono font-bold text-[#113824]">{b.batch_code}</td>
-                    <td className="p-3 font-bold text-gray-900">{b.variety_name}</td>
-                    <td className="p-3 text-gray-600">
-                      {b.orchard_name} ({b.block_code || 'Main Grove'})
-                    </td>
-                    <td className="p-3 text-gray-500">{b.harvest_date}</td>
-                    <td className="p-3 font-black text-gray-900">{formatNumber(b.total_yield_kg)}</td>
-                    <td className="p-3 font-black text-emerald-800">{formatNumber(b.available_kg)}</td>
-                    <td className="p-3 font-bold text-gray-700">{formatNumber(b.sold_kg)}</td>
-                    <td className="p-3">
-                      <span className="bg-[#113824]/10 text-[#113824] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
-                        {b.status}
-                      </span>
+                {loading ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-gray-400 font-medium">
+                      Loading orchard harvest batches...
                     </td>
                   </tr>
-                ))}
+                ) : batches.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-gray-400 font-medium">
+                      No harvest batches recorded.
+                    </td>
+                  </tr>
+                ) : (
+                  batches.map((b) => (
+                    <tr key={b.id} className="hover:bg-gray-50">
+                      <td className="p-3 font-mono font-bold text-[#113824]">{b.batch_code}</td>
+                      <td className="p-3 font-bold text-gray-900">{b.variety_name}</td>
+                      <td className="p-3 text-gray-600">
+                        {b.orchard_name} ({b.block_code || 'Main Grove'})
+                      </td>
+                      <td className="p-3 text-gray-500">{b.harvest_date}</td>
+                      <td className="p-3 font-black text-gray-900">{formatNumber(b.total_yield_kg)}</td>
+                      <td className="p-3 font-black text-emerald-800">{formatNumber(b.available_kg)}</td>
+                      <td className="p-3 font-bold text-gray-700">{formatNumber(b.sold_kg)}</td>
+                      <td className="p-3">
+                        <span className="bg-[#113824]/10 text-[#113824] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                          {b.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -221,35 +258,41 @@ export default function AdminInventoryPage() {
           </div>
 
           <div className="max-h-72 overflow-y-auto space-y-2 pr-1 text-xs">
-            {transactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="p-3 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-between"
-              >
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-[#113824]">{tx.package_name}</span>
-                    <span className="text-[10px] bg-white border px-1.5 py-0.5 rounded text-gray-600 font-mono">
-                      {tx.transaction_type}
-                    </span>
+            {loading ? (
+              <div className="p-8 text-center text-gray-400 font-medium">Loading inventory transaction ledger...</div>
+            ) : transactions.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 font-medium">No inventory movements recorded yet.</div>
+            ) : (
+              transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="p-3 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-[#113824]">{tx.package_name}</span>
+                      <span className="text-[10px] bg-white border px-1.5 py-0.5 rounded text-gray-600 font-mono">
+                        {tx.transaction_type}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-600 mt-0.5">{tx.reason}</div>
                   </div>
-                  <div className="text-[11px] text-gray-600 mt-0.5">{tx.reason}</div>
-                </div>
 
-                <div className="text-right">
-                  <span
-                    className={`font-black text-xs ${
-                      tx.quantity > 0 ? 'text-emerald-700' : 'text-amber-800'
-                    }`}
-                  >
-                    {tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity} boxes
-                  </span>
-                  <div className="text-[10px] text-gray-400">
-                    Balance After: {tx.balance_after} • {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <div className="text-right">
+                    <span
+                      className={`font-black text-xs ${
+                        tx.quantity > 0 ? 'text-emerald-700' : 'text-amber-800'
+                      }`}
+                    >
+                      {tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity} boxes
+                    </span>
+                    <div className="text-[10px] text-gray-400">
+                      Balance After: {tx.balance_after} • {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 

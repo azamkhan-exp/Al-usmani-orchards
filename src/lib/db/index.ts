@@ -110,6 +110,13 @@ export function translateSql(sql: string): string {
     result = result.replace(/name\s*=/gi, 'table_name =');
   }
 
+  // Rewrite SQLite datetime and date functions
+  result = result.replace(/datetime\(\s*'now'\s*,\s*'([+-]?\d+)\s+(minutes?|hours?|days?|months?|years?)'\s*\)/gi, "(CURRENT_TIMESTAMP + INTERVAL '$1 $2')");
+  result = result.replace(/datetime\(\s*'now'\s*\)/gi, 'CURRENT_TIMESTAMP');
+  result = result.replace(/date\(\s*'now'\s*\)/gi, 'CURRENT_DATE');
+  result = result.replace(/ORDER\s+BY\s+datetime\(([^)]+)\)/gi, 'ORDER BY $1');
+  result = result.replace(/datetime\(([^)]+)\)/gi, '$1');
+
   return result;
 }
 

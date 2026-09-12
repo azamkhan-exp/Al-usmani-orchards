@@ -12,7 +12,7 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const customers = db.prepare(`
+    const customers = await db.prepare(`
       SELECT 
         c.*,
         v.name as preferred_variety_name,
