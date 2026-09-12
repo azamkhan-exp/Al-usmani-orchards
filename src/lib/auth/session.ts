@@ -93,14 +93,18 @@ export async function createSession(userId: string, ipAddress = '', userAgent = 
     exp: expSec
   });
 
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, signedCookieValue, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: SESSION_EXPIRY_DAYS * 24 * 60 * 60
-  });
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set(SESSION_COOKIE_NAME, signedCookieValue, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_EXPIRY_DAYS * 24 * 60 * 60
+    });
+  } catch {
+    // Outside Next.js request context (e.g. CLI tests / seed scripts)
+  }
 
   return signedCookieValue;
 }

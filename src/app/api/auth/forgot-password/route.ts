@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const cleanEmail = email.trim().toLowerCase();
     const db = getDatabase();
 
-    const user = db.prepare('SELECT id, name, email FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
+    const user = await db.prepare('SELECT id, name, email FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
 
     // Even if user not found, return generic success to prevent account enumeration
     if (!user) {
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const tokenId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
       VALUES (?, ?, ?, ?, 0, datetime('now'))
     `).run(tokenId, user.id, tokenHash, expiresAt);

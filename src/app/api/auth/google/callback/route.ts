@@ -72,43 +72,59 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=Google+Email+Must+Be+Verified', req.url));
     }
 
+    function redactEmail(email: string): string {
+      const [userPart, domain] = email.split('@');
+      if (!domain) return '***';
+      const masked = userPart.length > 2
+        ? `${userPart[0]}***${userPart[userPart.length - 1]}`
+        : `${userPart[0]}***`;
+      return `${masked}@${domain}`;
+    }
+
     const cleanEmail = userData.email.trim().toLowerCase();
     const googleSub = userData.sub;
     const name = userData.name || userData.given_name || 'Valued Patron';
     const avatarUrl = userData.picture || null;
     const isOwner = isOwnerEmail(cleanEmail);
 
+    console.log(`[AUTH:GoogleCallback] Profile verified. Sub: ${googleSub.substring(0, 6)}***, Email: ${redactEmail(cleanEmail)}, isOwner: ${isOwner}`);
+
     const db = getDatabase();
 
     // 3. Check for existing OAuth link in accounts table
-    let account = db.prepare(`
+    const account = await db.prepare(`
       SELECT user_id FROM accounts WHERE provider = 'google' AND provider_account_id = ?
     `).get(googleSub) as any;
 
     let user: any = null;
 
-    if (account) {
-      user = db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(account.user_id) as any;
+    if (account && account.user_id) {
+      console.log(`[AUTH:GoogleCallback] Stage: account_lookup. Found linked account for user_id: ${account.user_id}`);
+      user = await db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(account.user_id) as any;
       if (user && isOwner && user.role !== 'SUPER_ADMIN') {
-        db.prepare(`UPDATE users SET role = 'SUPER_ADMIN', updated_at = datetime('now') WHERE id = ?`).run(user.id);
+        await db.prepare(`UPDATE users SET role = 'SUPER_ADMIN', updated_at = datetime('now') WHERE id = ?`).run(user.id);
         user.role = 'SUPER_ADMIN';
       }
+    } else {
+      console.log('[AUTH:GoogleCallback] Stage: account_lookup. No existing OAuth provider link found for this Google sub.');
     }
 
     // 4. If account not linked, check if user exists by verified email
     if (!user) {
-      const existingUser = db.prepare('SELECT id, name, email, role, status FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
+      console.log(`[AUTH:GoogleCallback] Stage: email_lookup. Checking users table for email: ${redactEmail(cleanEmail)}`);
+      const existingUser = await db.prepare('SELECT id, name, email, role, status FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
 
       if (existingUser) {
         user = existingUser;
+        console.log(`[AUTH:GoogleCallback] Stage: email_lookup. Existing user found by email: ${user.id}, Status: ${user.status}, Role: ${user.role}`);
         if (isOwner && user.role !== 'SUPER_ADMIN') {
-          db.prepare(`UPDATE users SET role = 'SUPER_ADMIN', updated_at = datetime('now') WHERE id = ?`).run(user.id);
+          await db.prepare(`UPDATE users SET role = 'SUPER_ADMIN', updated_at = datetime('now') WHERE id = ?`).run(user.id);
           user.role = 'SUPER_ADMIN';
         }
 
         // Link this Google provider account
         const accountId = crypto.randomUUID();
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, token_type, scope, id_token, created_at)
           VALUES (?, ?, 'google', ?, ?, ?, ?, ?, ?, datetime('now'))
         `).run(
@@ -123,7 +139,7 @@ export async function GET(req: NextRequest) {
         );
 
         // Update user avatar & verified status
-        db.prepare(`
+        await db.prepare(`
           UPDATE users SET avatar_url = COALESCE(?, avatar_url), email_verified = 1, updated_at = datetime('now') WHERE id = ?
         `).run(avatarUrl, user.id);
       } else {
@@ -136,13 +152,15 @@ export async function GET(req: NextRequest) {
         const role = isOwner ? 'SUPER_ADMIN' : 'CUSTOMER';
         const referralCode = `AUO-${Math.floor(1000 + Math.random() * 9000)}`;
 
-        runTransaction((database) => {
-          database.prepare(`
+        console.log(`[AUTH:GoogleCallback] Stage: user_provisioning. Creating new ${role} user: ${userId}`);
+
+        await runTransaction(async (database: any) => {
+          await database.prepare(`
             INSERT INTO users (id, name, email, password_hash, role, phone, avatar_url, email_verified, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, null, ?, 1, 'ACTIVE', datetime('now'), datetime('now'))
           `).run(userId, name, cleanEmail, passwordHash, role, avatarUrl);
 
-          database.prepare(`
+          await database.prepare(`
             INSERT INTO accounts (id, user_id, provider, provider_account_id, access_token, refresh_token, token_type, scope, id_token, created_at)
             VALUES (?, ?, 'google', ?, ?, ?, ?, ?, ?, datetime('now'))
           `).run(
@@ -156,11 +174,11 @@ export async function GET(req: NextRequest) {
             tokenData.id_token || null
           );
 
-          const existingCust = database.prepare('SELECT id, user_id FROM customers WHERE LOWER(email) = ?').get(cleanEmail) as any;
+          const existingCust = await database.prepare('SELECT id, user_id FROM customers WHERE LOWER(email) = ?').get(cleanEmail) as any;
           if (existingCust) {
-            database.prepare('UPDATE customers SET user_id = ? WHERE id = ?').run(userId, existingCust.id);
+            await database.prepare('UPDATE customers SET user_id = ? WHERE id = ?').run(userId, existingCust.id);
           } else {
-            database.prepare(`
+            await database.prepare(`
               INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at)
               VALUES (?, ?, ?, ?, null, 'Lahore', 'NEW', 0, 0, ?, datetime('now'))
             `).run(customerId, userId, name, cleanEmail, referralCode);
@@ -168,16 +186,21 @@ export async function GET(req: NextRequest) {
         });
 
         user = { id: userId, name, email: cleanEmail, role, status: 'ACTIVE' };
+        console.log(`[AUTH:GoogleCallback] Stage: user_provisioning. Successfully created user: ${userId}, Status: ACTIVE`);
       }
     }
 
-    if (user.status !== 'ACTIVE') {
+    console.log(`[AUTH:GoogleCallback] Stage: status_check. User: ${user?.id}, Status: ${user?.status}, Role: ${user?.role}`);
+
+    if (!user || user.status !== 'ACTIVE') {
+      console.warn(`[AUTH:GoogleCallback] Access denied: Account is not active (status=${user?.status}). Redirecting to /login?error=Account+Suspended`);
       return NextResponse.redirect(new URL('/login?error=Account+Suspended', req.url));
     }
 
     const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
     const userAgent = req.headers.get('user-agent') || 'GoogleOAuth';
     await createSession(user.id, ip, userAgent);
+    console.log(`[AUTH:GoogleCallback] Stage: session_created. Created session for user: ${user.id}`);
 
     // Redirect all admin roles to command center, customers to patron account
     const adminRoles = [
@@ -190,6 +213,7 @@ export async function GET(req: NextRequest) {
       'SUPPORT_AGENT'
     ];
     const destination = adminRoles.includes(user.role) ? '/admin' : '/account';
+    console.log(`[AUTH:GoogleCallback] Successful authentication. Redirecting to: ${destination}`);
     return NextResponse.redirect(new URL(destination, req.url));
   } catch (err: any) {
     console.error('Google OAuth callback error:', err);

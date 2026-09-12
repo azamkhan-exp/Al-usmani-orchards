@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
     const cleanEmail = email.trim().toLowerCase();
 
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, name, email, password_hash, role, phone, status
       FROM users
       WHERE LOWER(email) = ?
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     await createSession(user.id, ip, userAgent);
 
     if (user.role !== 'CUSTOMER') {
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'ADMIN_LOGIN_SUCCESS',
