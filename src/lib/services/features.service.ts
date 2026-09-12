@@ -349,7 +349,7 @@ export async function getAllFeatureFlags(forceFresh = false): Promise<Record<str
     `).all() as any[];
 
     const result: Record<string, FeatureFlag> = {};
-    for (const r of rows) {
+    for (const r of (rows || [])) {
       let config = {};
       try {
         config = JSON.parse(r.configuration_json || '{}');
@@ -382,7 +382,7 @@ export async function getAllFeatureFlags(forceFresh = false): Promise<Record<str
     lastFetchTime = now;
     return result;
   } catch (err) {
-    console.error('Failed to read feature flags from database, using catalog fallback:', err);
+    console.error('[FEATURES:LoadError] Failed to read feature flags from database, using catalog fallback:', err);
     const fallback: Record<string, FeatureFlag> = {};
     for (const def of MASTER_FEATURE_CATALOG) {
       fallback[def.key] = { ...def };

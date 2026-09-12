@@ -55,7 +55,7 @@ export default async function HomePage() {
   `).all();
 
   const packagesByProduct = new Map<string, any[]>();
-  for (const pkg of allPackages) {
+  for (const pkg of (allPackages || [])) {
     const list = packagesByProduct.get(pkg.product_id) || [];
     list.push(pkg);
     packagesByProduct.set(pkg.product_id, list);

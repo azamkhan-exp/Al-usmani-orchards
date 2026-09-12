@@ -1,12 +1,16 @@
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult } from '@neondatabase/serverless';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+interface TxContext {
+  client: PoolClient;
+  depth: number;
+}
+
+const txStorage = new AsyncLocalStorage<TxContext>();
 
 declare global {
   // eslint-disable-next-line no-var
   var __auo_pg_pool: Pool | undefined;
-  // eslint-disable-next-line no-var
-  var __auo_current_tx_client: PoolClient | undefined;
-  // eslint-disable-next-line no-var
-  var __auo_tx_depth: number | undefined;
 }
 
 export function getPool(): Pool {
@@ -37,16 +41,21 @@ export function getPool(): Pool {
     throw new Error('DATABASE_URL environment variable is not defined.');
   }
 
+  // Use Neon serverless WebSocket connection pool (port 443 wss://)
+  // Completely eliminates raw TCP port 5432 timeouts and socket freezes in serverless environments.
   const pool = new Pool({
     connectionString,
-    ssl: { rejectUnauthorized: false },
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 30000
+    connectionTimeoutMillis: 15000
+  });
+
+  // Attach error listener to prevent idle client errors from triggering uncaughtException
+  pool.on('error', (err: Error) => {
+    console.error('[DB:PoolError] Neon pool error caught safely:', err?.message || err);
   });
 
   global.__auo_pg_pool = pool;
-  global.__auo_tx_depth = 0;
   return pool;
 }
 
@@ -135,19 +144,25 @@ function createAdapter(queryExecutor: (sql: string, params?: any[]) => Promise<Q
         all: async (...params: any[]): Promise<any[]> => {
           const flat = flattenParams(params);
           const res = await queryExecutor(translatedSql, flat);
+          if (!res || !Array.isArray(res.rows)) {
+            return [];
+          }
           return res.rows;
         },
         get: async (...params: any[]): Promise<any> => {
           const flat = flattenParams(params);
           const res = await queryExecutor(translatedSql, flat);
+          if (!res || !res.rows || res.rows.length === 0) {
+            return undefined;
+          }
           return res.rows[0];
         },
         run: async (...params: any[]) => {
           const flat = flattenParams(params);
           const res = await queryExecutor(translatedSql, flat);
           return {
-            changes: res.rowCount ?? 0,
-            rowCount: res.rowCount ?? 0
+            changes: res?.rowCount ?? 0,
+            rowCount: res?.rowCount ?? 0
           };
         }
       };
@@ -156,9 +171,10 @@ function createAdapter(queryExecutor: (sql: string, params?: any[]) => Promise<Q
 }
 
 export function getDatabase(): DatabaseAdapter {
-  // If we are currently inside an active transaction, route to the transaction client!
-  if (global.__auo_current_tx_client) {
-    return createAdapter((sql, params) => global.__auo_current_tx_client!.query(sql, params));
+  // If an active transaction exists for the current async execution context, route to the transaction client!
+  const tx = txStorage.getStore();
+  if (tx?.client) {
+    return createAdapter((sql, params) => tx.client.query(sql, params));
   }
 
   const pool = getPool();
@@ -174,44 +190,49 @@ export const db = {
 
 export async function runTransaction<T>(callback: (database: DatabaseAdapter) => Promise<T> | T): Promise<T> {
   const pool = getPool();
-  const existingClient = global.__auo_current_tx_client;
-  const depth = global.__auo_tx_depth || 0;
+  const tx = txStorage.getStore();
 
-  if (existingClient && depth > 0) {
+  if (tx && tx.depth > 0) {
     // Nested transaction using PostgreSQL savepoint
-    const spName = `sp_depth_${depth}`;
-    global.__auo_tx_depth = depth + 1;
-    await existingClient.query(`SAVEPOINT ${spName}`);
+    const nextDepth = tx.depth + 1;
+    const spName = `sp_depth_${nextDepth}`;
+    tx.depth = nextDepth;
+    await tx.client.query(`SAVEPOINT ${spName}`);
     try {
-      const adapter = createAdapter((sql, params) => existingClient.query(sql, params));
+      const adapter = createAdapter((sql, params) => tx.client.query(sql, params));
       const result = await callback(adapter);
-      await existingClient.query(`RELEASE SAVEPOINT ${spName}`);
+      await tx.client.query(`RELEASE SAVEPOINT ${spName}`);
       return result;
     } catch (err) {
-      await existingClient.query(`ROLLBACK TO SAVEPOINT ${spName}`);
+      try {
+        await tx.client.query(`ROLLBACK TO SAVEPOINT ${spName}`);
+      } catch {
+        // ignore if client closed
+      }
       throw err;
     } finally {
-      global.__auo_tx_depth = Math.max(1, (global.__auo_tx_depth || 1) - 1);
+      tx.depth = Math.max(1, tx.depth - 1);
     }
   }
 
-  // Root transaction
+  // Root transaction isolated to this async execution context via AsyncLocalStorage
   const client = await pool.connect();
-  global.__auo_current_tx_client = client;
-  global.__auo_tx_depth = 1;
-
   try {
     await client.query('BEGIN');
-    const adapter = createAdapter((sql, params) => client.query(sql, params));
-    const result = await callback(adapter);
+    const result = await txStorage.run({ client, depth: 1 }, async () => {
+      const adapter = createAdapter((sql, params) => client.query(sql, params));
+      return await callback(adapter);
+    });
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore if client closed
+    }
     throw err;
   } finally {
-    global.__auo_current_tx_client = undefined;
-    global.__auo_tx_depth = 0;
     client.release();
   }
 }

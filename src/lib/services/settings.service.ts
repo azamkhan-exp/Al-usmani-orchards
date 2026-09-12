@@ -122,7 +122,7 @@ export async function getAllStoreSettings(): Promise<Record<string, any>> {
     }>;
 
     const settings: Record<string, any> = {};
-    for (const row of rows) {
+    for (const row of (rows || [])) {
       try {
         settings[row.key] = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
       } catch {
@@ -142,13 +142,17 @@ export async function getAllStoreSettings(): Promise<Record<string, any>> {
       security: settings.security || {}
     };
   } catch (err) {
-    console.error('Failed to load store settings from database:', err);
+    console.error('[SETTINGS:LoadError] Failed to load store settings from database:', err);
     return {
       general: DEFAULT_GENERAL_SETTINGS,
       contact: DEFAULT_CONTACT_SETTINGS,
       shipping: DEFAULT_SHIPPING_SETTINGS,
       seo: DEFAULT_SEO_SETTINGS,
-      notifications: DEFAULT_NOTIFICATION_SETTINGS
+      notifications: DEFAULT_NOTIFICATION_SETTINGS,
+      orders: {},
+      couriers: {},
+      email: {},
+      security: {}
     };
   }
 }
