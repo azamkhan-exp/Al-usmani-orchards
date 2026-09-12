@@ -49,7 +49,7 @@ async function syncProductGalleryJson(productId: string) {
     .all(productId)) as Array<{ image_url: string }>;
 
   const galleryUrls = images.map((i) => i.image_url);
-  await db.prepare(`UPDATE products SET gallery_json = ?, updated_at = datetime('now') WHERE id = ?`).run(
+  await db.prepare(`UPDATE products SET gallery_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
     JSON.stringify(galleryUrls),
     productId
   );
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// 2. POST /api/admin/products/images (Multipart file upload)
+// 2. POST /api/admin/products/images (Multipart file upload OR direct image URL)
 export async function POST(req: NextRequest) {
   try {
     ensureDatabaseReady();
@@ -94,14 +94,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const formData = await req.formData();
-    const productId = formData.get('productId') as string;
-    const file = formData.get('file') as File | null;
-    const altText = (formData.get('altText') as string) || '';
-    const setAsPrimaryParam = formData.get('setAsPrimary') === 'true';
+    let productId = '';
+    let altText = '';
+    let setAsPrimaryParam = false;
+    let directUrl = '';
+    let file: File | null = null;
 
-    if (!productId || !file) {
-      return NextResponse.json({ error: 'productId and file are required' }, { status: 400 });
+    const contentType = req.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = await req.json();
+      productId = body.productId;
+      altText = body.altText || '';
+      setAsPrimaryParam = Boolean(body.setAsPrimary);
+      directUrl = body.imageUrl || '';
+    } else {
+      const formData = await req.formData();
+      productId = (formData.get('productId') as string) || '';
+      file = formData.get('file') as File | null;
+      altText = (formData.get('altText') as string) || '';
+      setAsPrimaryParam = formData.get('setAsPrimary') === 'true';
+      directUrl = (formData.get('imageUrl') as string) || '';
+    }
+
+    if (!productId) {
+      return NextResponse.json({ error: 'productId is required' }, { status: 400 });
+    }
+
+    if (!file && !directUrl) {
+      return NextResponse.json({ error: 'Either an image file or an imageUrl must be provided.' }, { status: 400 });
     }
 
     const db = getDatabase();
@@ -110,36 +130,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: 'File size exceeds maximum allowed limit of 5MB.' }, { status: 400 });
-    }
+    let publicUrl = '';
+    let storagePath = '';
 
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      return NextResponse.json(
-        { error: 'Unsupported file type. Only JPEG, PNG, and WebP images are permitted.' },
-        { status: 400 }
+    if (file) {
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: 'File size exceeds maximum allowed limit of 5MB.' }, { status: 400 });
+      }
+
+      if (!ALLOWED_MIME_TYPES.has(file.type)) {
+        return NextResponse.json(
+          { error: 'Unsupported file type. Only JPEG, PNG, and WebP images are permitted.' },
+          { status: 400 }
+        );
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const { valid, ext } = validateMagicBytes(buffer);
+      if (!valid) {
+        return NextResponse.json(
+          { error: 'File signature verification failed. The uploaded file is not a genuine image.' },
+          { status: 400 }
+        );
+      }
+
+      // Store durably in PostgreSQL media_assets table
+      const mediaId = `media_${crypto.randomUUID()}`;
+      await db.prepare(`
+        INSERT INTO media_assets (id, filename, mime_type, file_size, data, created_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(
+        mediaId,
+        `product-${productId}.${ext}`,
+        file.type,
+        buffer.length,
+        buffer
       );
+
+      publicUrl = `/api/media/${mediaId}`;
+      storagePath = `media:${mediaId}`;
+    } else if (directUrl) {
+      const trimmed = directUrl.trim();
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('/')) {
+        return NextResponse.json({ error: 'Image URL must be a valid HTTP/HTTPS or local path' }, { status: 400 });
+      }
+      publicUrl = trimmed;
+      storagePath = `url:${trimmed}`;
     }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const { valid, ext } = validateMagicBytes(buffer);
-    if (!valid) {
-      return NextResponse.json(
-        { error: 'File signature verification failed. The uploaded file is not a genuine image.' },
-        { status: 400 }
-      );
-    }
-
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products');
-    await fs.mkdir(uploadsDir, { recursive: true });
-
-    const safeFileName = `product-${crypto.randomUUID()}.${ext}`;
-    const physicalPath = path.join(uploadsDir, safeFileName);
-    const publicUrl = `/uploads/products/${safeFileName}`;
-
-    await fs.writeFile(physicalPath, buffer);
 
     const existingImages = (await db
       .prepare('SELECT count(*) as count FROM product_images WHERE product_id = ?')
@@ -158,19 +197,19 @@ export async function POST(req: NextRequest) {
 
       await txDb.prepare(`
         INSERT INTO product_images (id, product_id, image_url, storage_path, alt_text, sort_order, is_primary, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         imageId,
         productId,
         publicUrl,
-        physicalPath,
+        storagePath,
         altText || `${product.name} - Luxury Harvest Presentation`,
         nextSortOrder,
         shouldBePrimary ? 1 : 0
       );
 
       if (shouldBePrimary) {
-        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
           publicUrl,
           productId
         );
@@ -224,7 +263,7 @@ export async function PUT(req: NextRequest) {
       await runTransaction(async (txDb) => {
         await txDb.prepare('UPDATE product_images SET is_primary = 0 WHERE product_id = ?').run(productId);
         await txDb.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(imageId);
-        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
           img.image_url,
           productId
         );
@@ -302,8 +341,25 @@ export async function DELETE(req: NextRequest) {
     const productId = image.product_id;
     const wasPrimary = Boolean(image.is_primary);
 
+    // If stored in database-backed media_assets, delete the asset
+    if (image.storage_path?.startsWith('media:')) {
+      const mediaId = image.storage_path.replace('media:', '');
+      try {
+        await db.prepare('DELETE FROM media_assets WHERE id = ?').run(mediaId);
+      } catch (dbMediaErr) {
+        console.warn('Could not delete media asset from database:', dbMediaErr);
+      }
+    } else if (image.image_url?.startsWith('/api/media/')) {
+      const mediaId = image.image_url.replace('/api/media/', '');
+      try {
+        await db.prepare('DELETE FROM media_assets WHERE id = ?').run(mediaId);
+      } catch (dbMediaErr) {
+        console.warn('Could not delete media asset from database:', dbMediaErr);
+      }
+    }
+
     // Physically unlink uploaded file if inside /uploads/products/
-    if (image.storage_path) {
+    if (image.storage_path && !image.storage_path.startsWith('media:') && !image.storage_path.startsWith('url:')) {
       try {
         await fs.unlink(image.storage_path);
       } catch (unlinkErr) {
@@ -328,13 +384,13 @@ export async function DELETE(req: NextRequest) {
 
         if (nextPrimary) {
           await txDb.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(nextPrimary.id);
-          await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+          await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
             nextPrimary.image_url,
             productId
           );
         } else {
           await txDb.prepare(
-            `UPDATE products SET primary_image = '/images/placeholder-mango.svg', updated_at = datetime('now') WHERE id = ?`
+            `UPDATE products SET primary_image = '/images/placeholder-mango.svg', updated_at = CURRENT_TIMESTAMP WHERE id = ?`
           ).run(productId);
         }
       }

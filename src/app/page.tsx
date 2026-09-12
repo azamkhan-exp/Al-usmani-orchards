@@ -78,12 +78,28 @@ export default async function HomePage() {
   `).all();
   const campaigns = serializePreorderCampaigns(rawCampaigns);
 
+  // 4. Fetch website content from CMS
+  let cmsContent: Record<string, any> = {};
+  try {
+    const rawCms = await db.prepare('SELECT section_key, content_json FROM website_content').all();
+    for (const row of (rawCms || []) as any[]) {
+      try {
+        cmsContent[row.section_key] = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json;
+      } catch {
+        cmsContent[row.section_key] = row.content_json;
+      }
+    }
+  } catch (cmsErr) {
+    console.warn('Could not fetch CMS content:', cmsErr);
+  }
+
   return (
     <StoreClientWrapper
       varieties={varieties}
       products={products}
       campaigns={campaigns}
       settings={settings}
+      cmsContent={cmsContent}
     />
   );
 }

@@ -33,6 +33,18 @@ interface PakistanLocationSelectorProps {
   onLocationChange: (loc: SelectedLocationDetails) => void;
 }
 
+const POPULAR_DESTINATIONS = [
+  { city: 'Lahore', province: 'Punjab', district: 'Lahore' },
+  { city: 'Karachi', province: 'Sindh', district: 'Karachi Central' },
+  { city: 'Islamabad', province: 'Islamabad Capital Territory', district: 'Islamabad' },
+  { city: 'Rawalpindi', province: 'Punjab', district: 'Rawalpindi' },
+  { city: 'Multan', province: 'Punjab', district: 'Multan' },
+  { city: 'Faisalabad', province: 'Punjab', district: 'Faisalabad' },
+  { city: 'Peshawar', province: 'Khyber Pakhtunkhwa', district: 'Peshawar' },
+  { city: 'Sialkot', province: 'Punjab', district: 'Sialkot' },
+  { city: 'Gujranwala', province: 'Punjab', district: 'Gujranwala' }
+];
+
 export default function PakistanLocationSelector({
   initialProvince = 'Punjab',
   initialDistrict = 'Lahore',
@@ -63,6 +75,11 @@ export default function PakistanLocationSelector({
   const [codAvailable, setCodAvailable] = useState(true);
   const [isServiceable, setIsServiceable] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  // Quick City Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
 
   // 1. Fetch provinces on mount
   useEffect(() => {
@@ -144,6 +161,39 @@ export default function PakistanLocationSelector({
     }
   };
 
+  const handleSearchCity = (q: string) => {
+    setSearchQuery(q);
+    if (!q || q.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    safeFetchJson<any>(`/api/locations?search=${encodeURIComponent(q.trim())}`)
+      .then((res) => {
+        if (res?.locations && Array.isArray(res.locations)) {
+          setSearchResults(res.locations.slice(0, 6));
+        } else {
+          setSearchResults([]);
+        }
+      })
+      .catch(() => setSearchResults([]))
+      .finally(() => setSearching(false));
+  };
+
+  const handleSelectSearchResult = (loc: any) => {
+    setProvince(loc.province);
+    setDistrict(loc.district);
+    setCity(loc.city);
+    if (loc.area) setArea(loc.area);
+    setSelectedLocId(loc.id || '');
+    setDeliveryFee(loc.delivery_fee);
+    setEstimatedDays(loc.estimated_delivery_days);
+    setCodAvailable(loc.cod_available === 1);
+    setIsServiceable(loc.is_serviceable === 1);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
   // Broadcast any changes to parent
   useEffect(() => {
     onLocationChange({
@@ -160,7 +210,87 @@ export default function PakistanLocationSelector({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+      {/* 1-Click Popular Destinations */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+            Popular Destinations (Instant 1-Click Select)
+          </label>
+          <span className="text-[10px] text-emerald-800 font-semibold">Pre-configured Express Rates</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {POPULAR_DESTINATIONS.map((dest) => {
+            const isSelected = city.toLowerCase() === dest.city.toLowerCase();
+            return (
+              <button
+                key={`pop-${dest.city}`}
+                type="button"
+                onClick={() => {
+                  setProvince(dest.province);
+                  setDistrict(dest.district);
+                  setCity(dest.city);
+                  setSelectedLocId('');
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#113824] text-[#F59E0B] shadow-xs ring-1 ring-[#F59E0B]/40'
+                    : 'bg-stone-100 text-stone-700 hover:bg-stone-200 border border-stone-200'
+                }`}
+              >
+                {dest.city}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Quick Search */}
+      <div className="relative">
+        <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1">
+          Or Search Any Pakistan City / Town
+        </label>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            type="text"
+            placeholder="Type city name (e.g. Multan, Islamabad, Faisalabad, Abbottabad...)"
+            value={searchQuery}
+            onChange={(e) => handleSearchCity(e.target.value)}
+            className="w-full text-xs font-medium pl-9 pr-3.5 py-2.5 bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-900/20 focus:border-emerald-900 shadow-sm"
+          />
+          {searching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-stone-400 font-mono">
+              Searching...
+            </div>
+          )}
+        </div>
+
+        {/* Autocomplete Results Dropdown */}
+        {searchResults.length > 0 && (
+          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden divide-y divide-stone-100 max-h-56 overflow-y-auto">
+            {searchResults.map((loc) => (
+              <button
+                key={`search-${loc.id}`}
+                type="button"
+                onClick={() => handleSelectSearchResult(loc)}
+                className="w-full px-3.5 py-2 text-left hover:bg-emerald-50/70 transition flex items-center justify-between text-xs cursor-pointer"
+              >
+                <div>
+                  <span className="font-bold text-stone-900">{loc.city}</span>
+                  {loc.area && <span className="text-stone-500"> ({loc.area})</span>}
+                  <span className="text-stone-400 text-[11px] block">{loc.district}, {loc.province}</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-bold text-emerald-900 block">PKR {loc.delivery_fee}</span>
+                  <span className="text-[10px] text-stone-400">{loc.estimated_delivery_days}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
         {/* Province / Region */}
         <div>
           <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1.5">

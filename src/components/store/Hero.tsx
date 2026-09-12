@@ -4,7 +4,29 @@ import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, ShieldCheck, Sun, Truck, Award, Sparkles } from 'lucide-react';
 
-export default function Hero() {
+interface HeroProps {
+  content?: {
+    headline?: string;
+    subheadline?: string;
+    primaryCta?: string;
+    secondaryCta?: string;
+    brixBadge?: string;
+    dispatchNote?: string;
+    heroImage?: string;
+    badgeText?: string;
+    brandLine?: string;
+  };
+}
+
+export default function Hero({ content }: HeroProps) {
+  const badgeText = content?.badgeText || 'Peak Summer Flush 2026 • Live Picking';
+  const brandLine = content?.brandLine || 'Fresh from Our Orchards • Premium Pakistani Mangoes • Naturally Grown • Delivered with Care';
+  const headline = content?.headline || 'From Our Orchards to Your Door.';
+  const subheadline = content?.subheadline || 'Cultivated in centuries-old canal silt along the Chenab river in Multan and Mirpur Khas. Every mango is hand-picked at dawn at peak 24°+ Brix sweetness, cushioned in 5-ply export crates, and delivered nationwide with zero calcium carbide chemicals.';
+  const primaryCta = content?.primaryCta || 'SHOP THE HARVEST';
+  const secondaryCta = content?.secondaryCta || 'EXPLORE OUR FARM';
+  const heroImage = content?.heroImage || 'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=1000&q=80';
+
   return (
     <section className="relative overflow-hidden bg-[#092115] text-[#FDFBF7] pt-12 pb-24 lg:pt-20 lg:pb-32">
       {/* Background Ambient Glows */}
@@ -18,22 +40,20 @@ export default function Hero() {
             <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-[#113824] border border-[#F59E0B]/40 shadow-sm">
               <Sparkles className="w-4 h-4 text-[#F59E0B]" />
               <span className="text-xs font-semibold text-[#FBBF24] tracking-wide uppercase">
-                Peak Summer Flush 2026 • Live Picking
+                {badgeText}
               </span>
             </div>
 
             <div className="text-xs sm:text-sm font-bold uppercase tracking-widest text-[#FBBF24]">
-              Fresh from Our Orchards • Premium Pakistani Mangoes • Naturally Grown • Delivered with Care
+              {brandLine}
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-black tracking-tight leading-[1.15]">
-              From Our Orchards <span className="text-[#F59E0B] italic">to Your Door.</span>
+              {headline}
             </h1>
 
             <p className="text-base sm:text-lg text-[#F5EEE2]/85 max-w-2xl font-light leading-relaxed">
-              Cultivated in centuries-old canal silt along the Chenab river in Multan and Mirpur Khas.
-              Every mango is hand-picked at dawn at peak 24°+ Brix sweetness, cushioned in 5-ply export crates,
-              and delivered nationwide with zero calcium carbide chemicals.
+              {subheadline}
             </p>
 
             {/* CTAs */}
@@ -42,14 +62,14 @@ export default function Hero() {
                 href="#harvest"
                 className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-[#F59E0B] hover:bg-[#D97706] text-[#092115] font-black text-sm tracking-wider uppercase shadow-lg shadow-[#F59E0B]/20 transition-all transform hover:-translate-y-0.5"
               >
-                <span>SHOP THE HARVEST</span>
+                <span>{primaryCta}</span>
                 <ArrowRight className="w-4 h-4 ml-2 font-bold" />
               </a>
               <a
                 href="#story"
                 className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-transparent hover:bg-white/10 text-[#FDFBF7] font-bold text-sm tracking-wider uppercase border border-[#FDFBF7]/30 transition-colors"
               >
-                EXPLORE OUR FARM
+                {secondaryCta}
               </a>
             </div>
 
@@ -60,7 +80,7 @@ export default function Hero() {
                   <Sun className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white uppercase">24°+ Brix</div>
+                  <div className="text-xs font-bold text-white uppercase">{content?.brixBadge || '24°+ Brix'}</div>
                   <div className="text-[11px] text-[#F5EEE2]/70">Naturally Sweet</div>
                 </div>
               </div>
@@ -80,7 +100,7 @@ export default function Hero() {
                   <Truck className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white uppercase">24h Transit</div>
+                  <div className="text-xs font-bold text-white uppercase">{content?.dispatchNote || '24h Transit'}</div>
                   <div className="text-[11px] text-[#F5EEE2]/70">Cold-Chain Reefer</div>
                 </div>
               </div>
@@ -93,7 +113,7 @@ export default function Hero() {
               {/* Main Mango Photo Card */}
               <div className="rounded-3xl overflow-hidden border-2 border-[#F59E0B]/40 shadow-2xl shadow-black/50 bg-[#113824]">
                 <img
-                  src="https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=1000&q=80"
+                  src={heroImage}
                   alt="Multani Chaunsa Gold Mangoes"
                   onError={(e) => {
                     const target = e.currentTarget;

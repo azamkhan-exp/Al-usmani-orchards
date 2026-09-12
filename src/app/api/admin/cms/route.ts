@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { getDatabase } from '@/lib/db';
 import { ensureDatabaseReady } from '@/lib/db/init';
 import { getCurrentUser, hasPermission } from '@/lib/auth/session';
@@ -46,10 +47,10 @@ export async function POST(req: NextRequest) {
 
     await db.prepare(`
       INSERT INTO website_content (id, section_key, content_json, updated_at)
-      VALUES (?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(section_key) DO UPDATE SET
         content_json = excluded.content_json,
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
     `).run(`cms-${sectionKey}`, sectionKey, contentStr);
 
     await recordAuditLog({
@@ -60,6 +61,14 @@ export async function POST(req: NextRequest) {
       resourceId: sectionKey,
       newState: content
     });
+
+    // Invalidate customer storefront cache immediately so edits appear live
+    try {
+      revalidatePath('/');
+      revalidatePath('/admin/cms');
+    } catch (revalErr) {
+      console.warn('CMS cache revalidation warning:', revalErr);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

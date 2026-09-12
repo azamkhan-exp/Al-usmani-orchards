@@ -103,17 +103,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [isSecondaryActive]);
 
-  useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.push('/admin/login');
-      } else if (user.role === 'CUSTOMER') {
-        router.push('/admin/login?error=You don\'t have permission to access the admin dashboard.');
-      } else if (user.status !== 'ACTIVE') {
-        router.push('/admin/login?error=Administrative account is inactive or suspended.');
-      }
-    }
-  }, [user, loading, router]);
+  // Note: Route-level authentication and role verification is strictly enforced
+  // server-side in src/middleware.ts and src/app/admin/layout.tsx.
+  // We avoid redundant client-side router.push('/admin/login') calls here to prevent
+  // route race conditions and mobile navigation bounces during tab switching.
 
   const handleLogout = async () => {
     await logout();
@@ -150,7 +143,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return crumbs;
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen bg-[#071D12] text-[#FDFBF7] flex items-center justify-center">
         <div className="flex items-center space-x-3 text-sm font-medium">

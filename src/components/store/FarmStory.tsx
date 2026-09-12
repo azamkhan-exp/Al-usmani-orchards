@@ -3,7 +3,23 @@
 import React from 'react';
 import { Sun, Droplet, Sprout, HeartHandshake, ShieldCheck } from 'lucide-react';
 
-export default function FarmStory() {
+interface FarmStoryProps {
+  content?: {
+    title?: string;
+    narrative?: string;
+    pillars?: Array<{ title: string; desc?: string }>;
+  };
+}
+
+export default function FarmStory({ content }: FarmStoryProps) {
+  const title = content?.title || 'Where Soil, Sun & Heritage Converge';
+  const narrative = content?.narrative || 'True Multani Chaunsa cannot be replicated in a commercial greenhouse. It requires the intense, punishing summer heat of southern Punjab, tempered by pure glacial run-off waters channeled from the Chenab river. Unlike industrial produce distributors who harvest immature green fruit and force-ripen with toxic calcium carbide, our master orchard pickers wait until each individual mango reaches physiological perfection on the tree branch.';
+  const pillars = content?.pillars || [
+    { title: 'Zero Carbide Chemical Ripening — 100% Tree Ripened' },
+    { title: 'Organic Bio-Compost & Cold Pressed Neem Soil Treatment' },
+    { title: 'Export Grade A+ Sorting: Only Top 15% of Harvest is Boxed' }
+  ];
+
   return (
     <section id="story" className="py-24 bg-[#F5EEE2] border-t border-[#E8DBC5]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -59,34 +75,25 @@ export default function FarmStory() {
             </div>
 
             <h2 className="text-3xl sm:text-4xl font-serif font-black text-[#113824]">
-              Where Soil, Sun & Heritage Converge
+              {title}
             </h2>
 
-            <p className="text-sm sm:text-base text-gray-700 leading-relaxed font-light">
-              True Multani Chaunsa cannot be replicated in a commercial greenhouse. It requires the intense,
-              punishing summer heat of southern Punjab, tempered by pure glacial run-off waters channeled from the
-              Chenab river.
-            </p>
-
-            <p className="text-sm sm:text-base text-gray-700 leading-relaxed font-light">
-              Unlike industrial produce distributors who harvest immature green fruit and force-ripen with toxic
-              calcium carbide, our master orchard pickers wait until each individual mango reaches physiological
-              perfection on the tree branch.
+            <p className="text-sm sm:text-base text-gray-700 leading-relaxed font-light whitespace-pre-line">
+              {narrative}
             </p>
 
             <div className="pt-4 space-y-3">
-              <div className="flex items-center space-x-3 text-sm text-[#113824] font-semibold">
-                <div className="w-6 h-6 rounded-full bg-[#113824] text-[#F59E0B] flex items-center justify-center text-xs">✓</div>
-                <span>Zero Carbide Chemical Ripening — 100% Tree Ripened</span>
-              </div>
-              <div className="flex items-center space-x-3 text-sm text-[#113824] font-semibold">
-                <div className="w-6 h-6 rounded-full bg-[#113824] text-[#F59E0B] flex items-center justify-center text-xs">✓</div>
-                <span>Organic Bio-Compost & Cold Pressed Neem Soil Treatment</span>
-              </div>
-              <div className="flex items-center space-x-3 text-sm text-[#113824] font-semibold">
-                <div className="w-6 h-6 rounded-full bg-[#113824] text-[#F59E0B] flex items-center justify-center text-xs">✓</div>
-                <span>Export Grade A+ Sorting: Only Top 15% of Harvest is Boxed</span>
-              </div>
+              {pillars.map((pillar, idx) => (
+                <div key={idx} className="flex items-start space-x-3 text-sm text-[#113824] font-semibold">
+                  <div className="w-6 h-6 rounded-full bg-[#113824] text-[#F59E0B] flex items-center justify-center text-xs shrink-0 mt-0.5">✓</div>
+                  <div>
+                    <span>{pillar.title}</span>
+                    {pillar.desc && (
+                      <p className="text-xs text-gray-500 font-normal mt-0.5">{pillar.desc}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

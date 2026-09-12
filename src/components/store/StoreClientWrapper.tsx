@@ -23,30 +23,32 @@ interface StoreClientWrapperProps {
   products: ProductDTO[];
   campaigns: PreorderCampaignDTO[];
   settings?: PublicStoreSettings;
+  cmsContent?: Record<string, any>;
 }
 
 export default function StoreClientWrapper({
   varieties,
   products,
   campaigns,
-  settings
+  settings,
+  cmsContent
 }: StoreClientWrapperProps) {
   const [isAiOpen, setIsAiOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FDFBF7]">
-      <AnnouncementMarquee settings={settings} />
+      <AnnouncementMarquee settings={settings} announcementContent={cmsContent?.announcement} />
       <Navbar onOpenAI={() => setIsAiOpen(true)} settings={settings} />
       <main className="flex-grow">
-        <Hero />
+        <Hero content={cmsContent?.hero} />
         <VarietyGuide varieties={varieties} />
         <ProductSection products={products} />
         <PreorderSection campaigns={campaigns} />
         <LuxuryGifting />
-        <FarmStory />
+        <FarmStory content={cmsContent?.farm_story} />
         <QualityProcess />
         <Testimonials />
-        <FAQSection />
+        <FAQSection items={cmsContent?.faqs} />
       </main>
       <Footer settings={settings} />
       <CartDrawer />

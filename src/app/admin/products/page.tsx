@@ -84,6 +84,8 @@ export default function AdminProductsPage() {
   const [uploadSetPrimary, setUploadSetPrimary] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [uploadDirectUrl, setUploadDirectUrl] = useState('');
+  const [imageUploadMode, setImageUploadMode] = useState<'FILE' | 'URL'>('FILE');
 
   // Add Package Modal
   const [addPackageModal, setAddPackageModal] = useState(false);
@@ -324,24 +326,42 @@ export default function AdminProductsPage() {
 
   const handleUploadProductImage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadFile || !editingProduct) return;
+    if (!editingProduct) return;
+    if (imageUploadMode === 'FILE' && !uploadFile) return;
+    if (imageUploadMode === 'URL' && !uploadDirectUrl.trim()) return;
+
     setUploadingImage(true);
     setImageUploadError(null);
     try {
-      const fd = new FormData();
-      fd.append('productId', editingProduct.id);
-      fd.append('file', uploadFile);
-      fd.append('altText', uploadAltText);
-      fd.append('setAsPrimary', String(uploadSetPrimary));
+      let res;
+      if (imageUploadMode === 'FILE' && uploadFile) {
+        const fd = new FormData();
+        fd.append('productId', editingProduct.id);
+        fd.append('file', uploadFile);
+        fd.append('altText', uploadAltText);
+        fd.append('setAsPrimary', String(uploadSetPrimary));
+        res = await fetch('/api/admin/products/images', {
+          method: 'POST',
+          body: fd
+        });
+      } else {
+        res = await fetch('/api/admin/products/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: editingProduct.id,
+            imageUrl: uploadDirectUrl.trim(),
+            altText: uploadAltText,
+            setAsPrimary: uploadSetPrimary
+          })
+        });
+      }
 
-      const res = await fetch('/api/admin/products/images', {
-        method: 'POST',
-        body: fd
-      });
       const data = await res.json();
       if (data.success) {
         setUploadFile(null);
         setUploadPreview(null);
+        setUploadDirectUrl('');
         setUploadAltText('');
         setUploadSetPrimary(false);
         fetchProductImages(editingProduct.id);
@@ -1312,45 +1332,101 @@ export default function AdminProductsPage() {
                     <span className="text-[10px] text-gray-400">JPG, PNG, WebP • Max 5MB</span>
                   </div>
 
-                  {/* Upload Dropzone */}
+                  {/* Upload Dropzone / URL Input */}
                   <form onSubmit={handleUploadProductImage} className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-200/60 space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        id="product-photo-input"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          setUploadFile(file);
-                          if (file) {
-                            setUploadPreview(URL.createObjectURL(file));
-                          } else {
-                            setUploadPreview(null);
-                          }
-                        }}
-                        className="hidden"
-                      />
-                      <label
-                        htmlFor="product-photo-input"
-                        className="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-white border border-gray-300 hover:border-[#113824] text-gray-700 text-xs font-bold shadow-2xs transition"
+                    {/* Toggle Mode */}
+                    <div className="flex border-b border-amber-200/60 pb-2 space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setImageUploadMode('FILE')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          imageUploadMode === 'FILE'
+                            ? 'bg-[#113824] text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        }`}
                       >
-                        <Upload className="w-3.5 h-3.5 text-[#113824]" />
-                        <span>{uploadFile ? 'Change File' : 'Choose Photo...'}</span>
-                      </label>
-
-                      {uploadFile && (
-                        <span className="text-xs text-gray-600 truncate max-w-[160px] font-medium">
-                          {uploadFile.name}
-                        </span>
-                      )}
+                        Upload File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImageUploadMode('URL')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          imageUploadMode === 'URL'
+                            ? 'bg-[#113824] text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        }`}
+                      >
+                        Image URL
+                      </button>
                     </div>
 
-                    {uploadPreview && (
-                      <div className="relative w-full h-28 rounded-xl overflow-hidden border border-amber-300 bg-black/5">
-                        <img src={uploadPreview} alt="Preview" className="w-full h-full object-cover" />
-                        <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded font-mono">
-                          Ready to upload
-                        </span>
+                    {imageUploadMode === 'FILE' ? (
+                      <div>
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            id="product-photo-input"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              setUploadFile(file);
+                              if (file) {
+                                setUploadPreview(URL.createObjectURL(file));
+                              } else {
+                                setUploadPreview(null);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                          <label
+                            htmlFor="product-photo-input"
+                            className="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-white border border-gray-300 hover:border-[#113824] text-gray-700 text-xs font-bold shadow-2xs transition"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-[#113824]" />
+                            <span>{uploadFile ? 'Change File' : 'Choose Photo...'}</span>
+                          </label>
+
+                          {uploadFile && (
+                            <span className="text-xs text-gray-600 truncate max-w-[160px] font-medium">
+                              {uploadFile.name}
+                            </span>
+                          )}
+                        </div>
+
+                        {uploadPreview && (
+                          <div className="relative w-full h-28 rounded-xl overflow-hidden border border-amber-300 bg-black/5 mt-2">
+                            <img src={uploadPreview} alt="Preview" className="w-full h-full object-cover" />
+                            <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded font-mono">
+                              Ready to upload
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          type="url"
+                          placeholder="Paste image link (e.g. https://images.unsplash.com/...)"
+                          value={uploadDirectUrl}
+                          onChange={(e) => setUploadDirectUrl(e.target.value)}
+                          className="w-full p-2 text-xs rounded-lg border border-gray-200 bg-white font-mono"
+                        />
+
+                        {uploadDirectUrl.trim() && (
+                          <div className="relative w-full h-28 rounded-xl overflow-hidden border border-amber-300 bg-black/5">
+                            <img
+                              src={uploadDirectUrl.trim()}
+                              alt="URL Preview"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                            <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded font-mono">
+                              Direct URL Preview
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1376,18 +1452,22 @@ export default function AdminProductsPage() {
 
                         <button
                           type="submit"
-                          disabled={!uploadFile || uploadingImage}
-                          className="px-4 py-1.5 rounded-xl bg-[#113824] hover:bg-[#195235] text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50 flex items-center space-x-1"
+                          disabled={
+                            uploadingImage ||
+                            (imageUploadMode === 'FILE' && !uploadFile) ||
+                            (imageUploadMode === 'URL' && !uploadDirectUrl.trim())
+                          }
+                          className="px-4 py-1.5 rounded-xl bg-[#113824] hover:bg-[#195235] text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50 flex items-center space-x-1 cursor-pointer"
                         >
                           {uploadingImage ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Uploading...</span>
+                              <span>Adding...</span>
                             </>
                           ) : (
                             <>
                               <Upload className="w-3 h-3" />
-                              <span>Upload</span>
+                              <span>{imageUploadMode === 'FILE' ? 'Upload' : 'Add Photo'}</span>
                             </>
                           )}
                         </button>

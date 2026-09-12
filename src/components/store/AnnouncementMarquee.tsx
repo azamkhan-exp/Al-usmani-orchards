@@ -7,12 +7,19 @@ import { PublicStoreSettings } from '@/lib/services/settings.service';
 
 interface AnnouncementMarqueeProps {
   settings?: PublicStoreSettings;
+  announcementContent?: {
+    bannerText?: string;
+    active?: boolean;
+  };
 }
 
-export default function AnnouncementMarquee({ settings }: AnnouncementMarqueeProps) {
-  const isEnabled = settings?.general?.announcement_enabled !== false;
+export default function AnnouncementMarquee({ settings, announcementContent }: AnnouncementMarqueeProps) {
+  const isCmsActive = announcementContent?.active !== false;
+  const isSettingsActive = settings?.general?.announcement_enabled !== false;
+  const isEnabled = isCmsActive && isSettingsActive;
   const isAnimated = settings?.general?.announcement_animation !== false;
   const bannerText =
+    announcementContent?.bannerText ||
     settings?.general?.announcement_banner ||
     '🥭 Premium Pakistani Mangoes • Farm Fresh • Delivered to Your Door • Seasonal Selection • Zero Calcium Carbide • Nationwide Express Cold-Chain';
   const link = settings?.general?.announcement_link || '/#harvest';
