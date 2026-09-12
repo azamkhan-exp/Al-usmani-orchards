@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized: Admin privileges required.' }, { status: 403 });
     }
 
-    const flags = getAllFeatureFlags(true);
+    const flags = await getAllFeatureFlags(true);
     return NextResponse.json({
       success: true,
       features: Object.values(flags)
@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Key and enabled boolean are required.' }, { status: 400 });
     }
 
-    const updated = updateFeatureFlag(key, enabled, configuration, user.email);
+    const updated = await updateFeatureFlag(key, enabled, configuration, user.email);
 
     return NextResponse.json({
       success: true,

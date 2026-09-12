@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized: Audit log privileges required' }, { status: 403 });
     }
 
-    const logs = getRecentAuditLogs(100);
+    const logs = await getRecentAuditLogs(100);
     return NextResponse.json({ success: true, logs });
   } catch (err: any) {
     console.error('Admin audit logs error:', err);

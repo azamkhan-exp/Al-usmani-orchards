@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const db = getDatabase();
 
     // Query customer profile record
-    const customer = db.prepare('SELECT id, email, referral_code FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT id, email, referral_code FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
 
     let query = `
       SELECT 
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 
     query += ` ORDER BY o.created_at DESC`;
 
-    const rawOrders = db.prepare(query).all(...params) as any[];
+    const rawOrders = (await db.prepare(query).all(...params)) as any[];
 
     const getItems = db.prepare(`
       SELECT 
@@ -64,10 +64,12 @@ export async function GET(req: NextRequest) {
       WHERE order_id = ?
     `);
 
-    const orders = rawOrders.map((ord) => ({
-      ...ord,
-      items: getItems.all(ord.id)
-    }));
+    const orders = await Promise.all(
+      rawOrders.map(async (ord) => ({
+        ...ord,
+        items: await getItems.all(ord.id),
+      }))
+    );
 
     return NextResponse.json({
       success: true,

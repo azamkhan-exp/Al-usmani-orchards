@@ -14,10 +14,10 @@ export const dynamic = 'force-dynamic';
 export default async function HomePage() {
   ensureDatabaseReady();
   const db = getDatabase();
-  const settings = getPublicStoreSettings();
+  const settings = await getPublicStoreSettings();
 
   // 1. Fetch varieties
-  const rawVarieties = db.prepare(`
+  const rawVarieties = await db.prepare(`
     SELECT * FROM mango_varieties
     WHERE is_active = 1
     ORDER BY sort_order ASC, sweetness_brix DESC
@@ -25,7 +25,7 @@ export default async function HomePage() {
   const varieties = serializeVarieties(rawVarieties);
 
   // 2. Fetch products with package sizes and live stock
-  const rawProducts = db.prepare(`
+  const rawProducts = await db.prepare(`
     SELECT 
       p.*,
       v.name as variety_name,
@@ -42,7 +42,7 @@ export default async function HomePage() {
     ORDER BY p.is_featured DESC, p.created_at ASC
   `).all();
 
-  const getPackages = db.prepare(`
+  const allPackages = await db.prepare(`
     SELECT 
       ps.*,
       COALESCE(ps.sale_price, ps.base_price) as effective_price,
@@ -50,14 +50,21 @@ export default async function HomePage() {
       COALESCE(inv.total_stock, 0) as total_stock
     FROM package_sizes ps
     LEFT JOIN inventory inv ON inv.package_size_id = ps.id
-    WHERE ps.product_id = ? AND ps.is_active = 1
+    WHERE ps.is_active = 1
     ORDER BY ps.weight_kg ASC
-  `);
+  `).all();
 
-  const products = serializeProducts(rawProducts, (productId) => getPackages.all(productId));
+  const packagesByProduct = new Map<string, any[]>();
+  for (const pkg of allPackages) {
+    const list = packagesByProduct.get(pkg.product_id) || [];
+    list.push(pkg);
+    packagesByProduct.set(pkg.product_id, list);
+  }
+
+  const products = serializeProducts(rawProducts, (productId) => packagesByProduct.get(productId) || []);
 
   // 3. Fetch pre-order campaigns
-  const rawCampaigns = db.prepare(`
+  const rawCampaigns = await db.prepare(`
     SELECT 
       c.*,
       p.name as product_name,

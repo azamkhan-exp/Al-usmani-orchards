@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const report = generateReportData(reportType, {
+    const report = await generateReportData(reportType, {
       preset,
       startDate,
       endDate

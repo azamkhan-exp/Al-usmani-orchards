@@ -9,13 +9,13 @@ export interface AssistantResponse {
 }
 
 // 1. Customer AI Assistant ("OrchardBot")
-export function askCustomerAssistant(query: string): AssistantResponse {
+export async function askCustomerAssistant(query: string): Promise<AssistantResponse> {
   const db = getDatabase();
   const q = query.toLowerCase().trim();
 
   // Match: Sweetness / Brix comparison
   if (q.includes('sweet') || q.includes('brix') || q.includes('sugar') || q.includes('flavor')) {
-    const varieties = db.prepare(`
+    const varieties = await db.prepare(`
       SELECT name, sweetness_brix, aroma_level, flavor_notes, origin_city
       FROM mango_varieties
       WHERE is_active = 1
@@ -35,7 +35,7 @@ export function askCustomerAssistant(query: string): AssistantResponse {
 
   // Match: Package sizes / 10 KG availability
   if (q.includes('10 kg') || q.includes('5 kg') || q.includes('8 kg') || q.includes('package') || q.includes('size')) {
-    const packages = db.prepare(`
+    const packages = await db.prepare(`
       SELECT 
         v.name as variety, ps.name as package_name, ps.weight_kg, 
         COALESCE(ps.sale_price, ps.base_price) as price,
@@ -60,7 +60,7 @@ export function askCustomerAssistant(query: string): AssistantResponse {
 
   // Match: Pre-order questions
   if (q.includes('preorder') || q.includes('pre-order') || q.includes('upcoming') || q.includes('reserve')) {
-    const campaigns = db.prepare(`
+    const campaigns = await db.prepare(`
       SELECT c.*, p.name as product_name, ps.name as package_name
       FROM preorder_campaigns c
       JOIN products p ON p.id = c.product_id
@@ -90,7 +90,7 @@ export function askCustomerAssistant(query: string): AssistantResponse {
   if (orderMatch || q.includes('track') || q.includes('where is my order')) {
     const orderNum = orderMatch ? orderMatch[0].toUpperCase() : null;
     if (orderNum) {
-      const order = db.prepare(`
+      const order = await db.prepare(`
         SELECT o.*, c.name as courier_name
         FROM orders o
         LEFT JOIN couriers c ON c.id = o.courier_id
@@ -104,7 +104,7 @@ export function askCustomerAssistant(query: string): AssistantResponse {
         };
       }
 
-      const timeline = db.prepare(`
+      const timeline = await db.prepare(`
         SELECT title, description, created_at
         FROM order_timeline
         WHERE order_id = ?
@@ -135,7 +135,7 @@ export function askCustomerAssistant(query: string): AssistantResponse {
 
   // Match: Offers and Promotions
   if (q.includes('offer') || q.includes('discount') || q.includes('coupon') || q.includes('promo')) {
-    const promos = db.prepare(`
+    const promos = await db.prepare(`
       SELECT name, code, discount_type, discount_value, min_order_value, expires_at
       FROM promotions
       WHERE is_active = 1
@@ -160,10 +160,10 @@ export function askCustomerAssistant(query: string): AssistantResponse {
 }
 
 // 2. Admin Executive AI Assistant ("OrchardIQ")
-export function askAdminAssistant(query: string): AssistantResponse {
+export async function askAdminAssistant(query: string): Promise<AssistantResponse> {
   const db = getDatabase();
   const q = query.toLowerCase().trim();
-  const fin = getFinancialOverview();
+  const fin = await getFinancialOverview();
 
   // Query: Revenue, Profit, Financials
   if (q.includes('profit') || q.includes('revenue') || q.includes('finance') || q.includes('money') || q.includes('sales')) {
@@ -176,7 +176,7 @@ export function askAdminAssistant(query: string): AssistantResponse {
 
   // Query: Top selling mango variety
   if (q.includes('most') || q.includes('top') || q.includes('best') || q.includes('popular')) {
-    const topVarieties = db.prepare(`
+    const topVarieties = await db.prepare(`
       SELECT 
         v.name as variety, 
         SUM(oi.quantity) as boxes_sold, 
@@ -203,7 +203,7 @@ export function askAdminAssistant(query: string): AssistantResponse {
 
   // Query: City analytics
   if (q.includes('city') || q.includes('geographic') || q.includes('location')) {
-    const cities = db.prepare(`
+    const cities = await db.prepare(`
       SELECT 
         COALESCE(c.city, 'Unspecified') as city_name,
         COUNT(o.id) as order_count,
@@ -227,7 +227,7 @@ export function askAdminAssistant(query: string): AssistantResponse {
 
   // Query: Pending COD
   if (q.includes('cod') || q.includes('receivable') || q.includes('pending payment')) {
-    const codOrders = db.prepare(`
+    const codOrders = await db.prepare(`
       SELECT COUNT(id) as pending_count, COALESCE(SUM(total_amount), 0) as pending_total
       FROM orders
       WHERE payment_method = 'COD' AND payment_status = 'PENDING' AND status NOT IN ('CANCELLED', 'FAILED')
@@ -242,7 +242,7 @@ export function askAdminAssistant(query: string): AssistantResponse {
 
   // Query: Low stock / Inventory risk
   if (q.includes('stock') || q.includes('inventory') || q.includes('low')) {
-    const lowStock = db.prepare(`
+    const lowStock = await db.prepare(`
       SELECT 
         v.name as variety, ps.name as package_name, 
         inv.available_stock, inv.low_stock_threshold

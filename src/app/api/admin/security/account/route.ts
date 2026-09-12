@@ -14,11 +14,11 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const account = db.prepare(`
+    const account = (await db.prepare(`
       SELECT id, username, name, email, role, phone, avatar_url, mfa_enabled, mfa_verified_at, last_login_at, created_at
       FROM users
       WHERE id = ?
-    `).get(user.id) as any;
+    `).get(user.id)) as any;
 
     return NextResponse.json({ success: true, account });
   } catch (err: any) {
@@ -46,11 +46,11 @@ export async function PUT(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const currentUserRow = db.prepare(`
+    const currentUserRow = (await db.prepare(`
       SELECT id, username, email, password_hash, role
       FROM users
       WHERE id = ?
-    `).get(user.id) as any;
+    `).get(user.id)) as any;
 
     if (!currentUserRow || !verifyPassword(current_password, currentUserRow.password_hash)) {
       return NextResponse.json(
@@ -79,7 +79,7 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const existingUser = db.prepare(`
+      const existingUser = await db.prepare(`
         SELECT id FROM users WHERE LOWER(username) = ? AND id != ?
       `).get(cleanUsername, user.id);
 
@@ -99,7 +99,7 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid email address.' }, { status: 400 });
       }
 
-      const existingEmail = db.prepare(`
+      const existingEmail = await db.prepare(`
         SELECT id FROM users WHERE LOWER(email) = ? AND id != ?
       `).get(cleanEmail, user.id);
 
@@ -126,11 +126,11 @@ export async function PUT(req: NextRequest) {
     params.push(user.id);
 
     const updateSql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-    db.prepare(updateSql).run(...params);
+    await db.prepare(updateSql).run(...params);
 
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ADMIN_PROFILE_UPDATED',
@@ -141,7 +141,7 @@ export async function PUT(req: NextRequest) {
       newState: JSON.stringify(changes)
     });
 
-    const updatedUser = db.prepare(`
+    const updatedUser = await db.prepare(`
       SELECT id, username, name, email, role, phone, avatar_url, mfa_enabled, mfa_verified_at, last_login_at
       FROM users
       WHERE id = ?

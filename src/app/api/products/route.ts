@@ -8,7 +8,7 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const products = db.prepare(`
+    const products = (await db.prepare(`
       SELECT 
         p.*,
         v.name as variety_name,
@@ -23,7 +23,7 @@ export async function GET() {
       JOIN mango_varieties v ON v.id = p.variety_id
       WHERE p.status = 'ACTIVE'
       ORDER BY p.is_featured DESC, p.created_at ASC
-    `).all() as any[];
+    `).all()) as any[];
 
     // Fetch dynamic package sizes with live inventory for each product
     const getPackages = db.prepare(`
@@ -45,21 +45,23 @@ export async function GET() {
       ORDER BY created_at DESC
     `);
 
-    const enrichedProducts = products.map((prod) => {
-      const packages = getPackages.all(prod.id) as any[];
-      const reviews = getReviews.all(prod.id);
-      const avgRating = reviews.length > 0 
-        ? Math.round((reviews.reduce((acc: number, r: any) => acc + r.rating, 0) / reviews.length) * 10) / 10 
-        : 5.0;
+    const enrichedProducts = await Promise.all(
+      products.map(async (prod) => {
+        const packages = (await getPackages.all(prod.id)) as any[];
+        const reviews = (await getReviews.all(prod.id)) as any[];
+        const avgRating = reviews.length > 0 
+          ? Math.round((reviews.reduce((acc: number, r: any) => acc + r.rating, 0) / reviews.length) * 10) / 10 
+          : 5.0;
 
-      const normalized = normalizeProduct(prod, packages);
-      return {
-        ...normalized,
-        reviews,
-        reviewCount: reviews.length,
-        averageRating: avgRating
-      };
-    });
+        const normalized = normalizeProduct(prod, packages);
+        return {
+          ...normalized,
+          reviews,
+          reviewCount: reviews.length,
+          averageRating: avgRating
+        };
+      })
+    );
 
     return NextResponse.json({ success: true, products: enrichedProducts });
   } catch (err: any) {

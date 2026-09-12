@@ -108,15 +108,15 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 };
 
 /**
- * Retrieve all store settings from the SQLite database.
+ * Retrieve all store settings from PostgreSQL.
  * Internal only — may contain sensitive operational fields (SMTP, security, etc.).
  */
-export function getAllStoreSettings(): Record<string, any> {
+export async function getAllStoreSettings(): Promise<Record<string, any>> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   try {
-    const rows = db.prepare('SELECT key, value_json FROM store_settings').all() as Array<{
+    const rows = await db.prepare('SELECT key, value_json FROM store_settings').all() as Array<{
       key: string;
       value_json: string;
     }>;
@@ -124,7 +124,7 @@ export function getAllStoreSettings(): Record<string, any> {
     const settings: Record<string, any> = {};
     for (const row of rows) {
       try {
-        settings[row.key] = JSON.parse(row.value_json);
+        settings[row.key] = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
       } catch {
         settings[row.key] = {};
       }
@@ -142,7 +142,7 @@ export function getAllStoreSettings(): Record<string, any> {
       security: settings.security || {}
     };
   } catch (err) {
-    console.error('Failed to load store settings from SQLite:', err);
+    console.error('Failed to load store settings from database:', err);
     return {
       general: DEFAULT_GENERAL_SETTINGS,
       contact: DEFAULT_CONTACT_SETTINGS,
@@ -156,8 +156,8 @@ export function getAllStoreSettings(): Record<string, any> {
 /**
  * Helper to get active notification settings (admin alerts, WhatsApp credentials, toggles).
  */
-export function getStoreNotificationSettings(): NotificationSettings {
-  const all = getAllStoreSettings();
+export async function getStoreNotificationSettings(): Promise<NotificationSettings> {
+  const all = await getAllStoreSettings();
   return (all.notifications as NotificationSettings) || DEFAULT_NOTIFICATION_SETTINGS;
 }
 
@@ -165,8 +165,8 @@ export function getStoreNotificationSettings(): NotificationSettings {
  * Returns public-safe store settings for the customer storefront.
  * Excludes SMTP secrets, admin alert emails, and internal security configs.
  */
-export function getPublicStoreSettings(): PublicStoreSettings {
-  const all = getAllStoreSettings();
+export async function getPublicStoreSettings(): Promise<PublicStoreSettings> {
+  const all = await getAllStoreSettings();
   return {
     general: all.general as GeneralSettings,
     contact: all.contact as ContactSettings,
@@ -178,17 +178,17 @@ export function getPublicStoreSettings(): PublicStoreSettings {
 /**
  * Lightweight helper to fetch active shipping parameters for fee calculations.
  */
-export function getShippingSettings(): ShippingSettings {
+export async function getShippingSettings(): Promise<ShippingSettings> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   try {
-    const row = db.prepare(`SELECT value_json FROM store_settings WHERE key = 'shipping'`).get() as {
+    const row = await db.prepare(`SELECT value_json FROM store_settings WHERE key = 'shipping'`).get() as {
       value_json: string;
     } | undefined;
 
     if (row?.value_json) {
-      const parsed = JSON.parse(row.value_json);
+      const parsed = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
       return {
         ...DEFAULT_SHIPPING_SETTINGS,
         ...parsed,

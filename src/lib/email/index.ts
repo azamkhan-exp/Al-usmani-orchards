@@ -1,4 +1,5 @@
 import { getDatabase } from '../db';
+import { ensureDatabaseReady } from '../db/init';
 import { getStoreNotificationSettings } from '../services/settings.service';
 import crypto from 'node:crypto';
 import {
@@ -38,12 +39,12 @@ const DEFAULT_EMAIL_SETTINGS: EmailSettings = {
   enable_dispatch_updates: true
 };
 
-export function getStoreEmailSettings(): EmailSettings {
+export async function getStoreEmailSettings(): Promise<EmailSettings> {
   try {
     const db = getDatabase();
-    const row = db.prepare(`SELECT value_json FROM store_settings WHERE key = 'email'`).get() as any;
+    const row = await db.prepare(`SELECT value_json FROM store_settings WHERE key = 'email'`).get() as any;
     if (row && row.value_json) {
-      const parsed = JSON.parse(row.value_json);
+      const parsed = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
       return { ...DEFAULT_EMAIL_SETTINGS, ...parsed };
     }
   } catch (err) {
@@ -73,7 +74,7 @@ export interface SendEmailResult {
  * Safe, completely non-blocking, and records to notification_logs.
  */
 export async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
-  const settings = getStoreEmailSettings();
+  const settings = await getStoreEmailSettings();
   const db = getDatabase();
   const logId = `elog_${crypto.randomUUID()}`;
   const idempotencyKey = options.idempotencyKey || (options.orderId ? `email_${options.type}_${options.orderId}` : null);
@@ -81,7 +82,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
   // Idempotency check: prevent duplicate emails within 10 minutes
   if (idempotencyKey) {
     try {
-      const existing = db
+      const existing = await db
         .prepare(`SELECT id, status FROM notification_logs WHERE idempotency_key = ? AND created_at > datetime('now', '-10 minutes')`)
         .get(idempotencyKey) as any;
 
@@ -104,7 +105,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
   // If SMTP is not configured, operate in high-fidelity SIMULATED mode
   if (!settings.smtp_host || settings.smtp_host.trim() === '') {
     try {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?, 'SIMULATED', 'Logged in simulation mode (SMTP host not configured)', 'EMAIL', ?, ?, datetime('now'))
       `).run(logId, options.orderId || null, options.to, options.subject, options.type, idempotencyKey, payloadJson);
@@ -121,7 +122,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
 
   // SMTP configured: attempt transmission
   try {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
       VALUES (?, ?, ?, ?, ?, 'SENT', NULL, 'EMAIL', ?, ?, datetime('now'))
     `).run(logId, options.orderId || null, options.to, options.subject, options.type, idempotencyKey, payloadJson);
@@ -135,7 +136,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
     console.error('Email send failed:', err);
 
     try {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?, 'FAILED', ?, 'EMAIL', ?, ?, datetime('now'))
       `).run(logId, options.orderId || null, options.to, options.subject, options.type, err.message || 'Unknown SMTP error', idempotencyKey, payloadJson);
@@ -157,11 +158,12 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
  */
 export async function sendOrderConfirmationEmail(orderId: string): Promise<SendEmailResult | null> {
   try {
-    const settings = getStoreEmailSettings();
+    const settings = await getStoreEmailSettings();
     if (!settings.enable_customer_confirmations) return null;
 
+    ensureDatabaseReady();
     const db = getDatabase();
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT o.*, COALESCE(c.full_name, o.guest_name, 'Honored Guest') as customer_name,
              COALESCE(c.email, o.guest_email) as recipient_email,
              COALESCE(c.phone, o.guest_phone) as customer_phone
@@ -174,7 +176,7 @@ export async function sendOrderConfirmationEmail(orderId: string): Promise<SendE
       return null;
     }
 
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT variety_name, package_name, unit_price, quantity, subtotal
       FROM order_items
       WHERE order_id = ?
@@ -236,11 +238,12 @@ export async function sendOrderDispatchedEmail(
   trackingUrl: string
 ): Promise<SendEmailResult | null> {
   try {
-    const settings = getStoreEmailSettings();
+    const settings = await getStoreEmailSettings();
     if (!settings.enable_dispatch_updates) return null;
 
+    ensureDatabaseReady();
     const db = getDatabase();
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT o.*, COALESCE(c.full_name, o.guest_name, 'Valued Customer') as customer_name,
              COALESCE(c.email, o.guest_email) as recipient_email
       FROM orders o
@@ -280,15 +283,16 @@ export async function sendOrderDispatchedEmail(
  */
 export async function sendAdminAlertEmail(orderId: string): Promise<SendEmailResult | null> {
   try {
-    const settings = getStoreEmailSettings();
-    const notifSettings = getStoreNotificationSettings();
+    const settings = await getStoreEmailSettings();
+    const notifSettings = await getStoreNotificationSettings();
     const adminEmail = notifSettings.admin_email || settings.admin_alert_email;
     const isEnabled = settings.enable_admin_alerts && notifSettings.enable_admin_email;
 
     if (!isEnabled || !adminEmail) return null;
 
+    ensureDatabaseReady();
     const db = getDatabase();
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT o.*, COALESCE(c.full_name, o.guest_name, 'Guest Customer') as customer_name,
              COALESCE(c.phone, o.guest_phone) as customer_phone
       FROM orders o
@@ -298,7 +302,7 @@ export async function sendAdminAlertEmail(orderId: string): Promise<SendEmailRes
 
     if (!order) return null;
 
-    const itemsCountRow = db.prepare(`
+    const itemsCountRow = await db.prepare(`
       SELECT COUNT(*) as count FROM order_items WHERE order_id = ?
     `).get(orderId) as any;
 

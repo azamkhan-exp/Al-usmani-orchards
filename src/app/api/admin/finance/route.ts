@@ -15,33 +15,33 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const overview = getFinancialOverview();
-    const cashFlow = getCashFlowTrends();
+    const overview = await getFinancialOverview();
+    const cashFlow = await getCashFlowTrends();
 
     // Expenses list
-    const expenses = db.prepare(`
+    const expenses = await db.prepare(`
       SELECT e.*, c.name as category_name
       FROM expenses e
       JOIN expense_categories c ON c.id = e.category_id
-      ORDER BY datetime(e.expense_date) DESC
+      ORDER BY e.expense_date DESC
       LIMIT 100
     `).all();
 
     // Expense Categories
-    const categories = db.prepare('SELECT * FROM expense_categories ORDER BY name ASC').all();
+    const categories = await db.prepare('SELECT * FROM expense_categories ORDER BY name ASC').all();
 
     // Accounts Receivable
-    const receivables = db.prepare(`
+    const receivables = await db.prepare(`
       SELECT ar.*, o.order_number
       FROM accounts_receivable ar
       LEFT JOIN orders o ON o.id = ar.order_id
-      ORDER BY ar.status ASC, datetime(ar.due_date) ASC
+      ORDER BY ar.status ASC, ar.due_date ASC
     `).all();
 
     // Accounts Payable
-    const payables = db.prepare(`
+    const payables = await db.prepare(`
       SELECT * FROM accounts_payable
-      ORDER BY status ASC, datetime(due_date) ASC
+      ORDER BY status ASC, due_date ASC
     `).all();
 
     return NextResponse.json({
@@ -77,11 +77,11 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
     const expenseId = crypto.randomUUID();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO expenses (
         id, category_id, amount, expense_date, description, vendor_name,
         payment_method, reference_no, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       expenseId,
       categoryId,
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       user.name
     );
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'EXPENSE_RECORDED',

@@ -17,7 +17,7 @@ export async function PATCH(
     const { role, status } = body;
 
     if (role) {
-      const result = updateAdminRole({
+      const result = await updateAdminRole({
         targetUserId: id,
         newRole: role,
         actorUserId: auth.user.id,
@@ -34,7 +34,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Status must be ACTIVE or SUSPENDED.' }, { status: 400 });
       }
 
-      const result = updateAdminStatus({
+      const result = await updateAdminStatus({
         targetUserId: id,
         newStatus: status,
         actorUserId: auth.user.id,
@@ -67,7 +67,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = deleteAdminUser({
+    const result = await deleteAdminUser({
       targetUserId: id,
       actorUserId: auth.user.id,
       actorUserEmail: auth.user.email

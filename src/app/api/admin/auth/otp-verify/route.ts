@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, username, name, email, role, status
       FROM users
       WHERE id = ?
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify OTP against hashed store
-    const verifyResult = verifyAdminOTP(user.id, code, 'ADMIN_LOGIN');
+    const verifyResult = await verifyAdminOTP(user.id, code, 'ADMIN_LOGIN');
     if (!verifyResult.success) {
       return NextResponse.json(
         { error: verifyResult.error || 'Invalid verification code.' },
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     resetRateLimit(`admin_otp_verify:${ip}`);
     resetRateLimit(`admin_login:${ip}`);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ADMIN_OTP_LOGIN_SUCCESS',

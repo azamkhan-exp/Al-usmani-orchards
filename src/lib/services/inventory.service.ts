@@ -6,15 +6,15 @@ export interface StockReservationItem {
   quantity: number;
 }
 
-export function reserveInventory(
+export async function reserveInventory(
   items: StockReservationItem[],
   referenceId: string,
   userId?: string
-): { success: boolean; error?: string } {
-  return runTransaction((db) => {
+): Promise<{ success: boolean; error?: string }> {
+  return await runTransaction(async (db) => {
     for (const item of items) {
       // Fetch current inventory record with row locking
-      const inv = db.prepare(`
+      const inv = await db.prepare(`
         SELECT id, package_size_id, available_stock, reserved_stock, total_stock
         FROM inventory
         WHERE package_size_id = ?
@@ -30,19 +30,19 @@ export function reserveInventory(
         return { success: false, error: `Inventory not configured for package size ${item.packageSizeId}` };
       }
 
-      if (inv.available_stock < item.quantity) {
+      if (Number(inv.available_stock) < item.quantity) {
         return {
           success: false,
           error: `Insufficient stock for package size ${item.packageSizeId}. Requested ${item.quantity}, available ${inv.available_stock}`
         };
       }
 
-      const newAvailable = inv.available_stock - item.quantity;
-      const newReserved = inv.reserved_stock + item.quantity;
+      const newAvailable = Number(inv.available_stock) - item.quantity;
+      const newReserved = Number(inv.reserved_stock) + item.quantity;
 
-      const updateResult = db.prepare(`
+      const updateResult = await db.prepare(`
         UPDATE inventory 
-        SET available_stock = available_stock - ?, reserved_stock = reserved_stock + ?, updated_at = datetime('now')
+        SET available_stock = available_stock - ?, reserved_stock = reserved_stock + ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND available_stock >= ?
       `).run(item.quantity, item.quantity, inv.id, item.quantity);
 
@@ -55,11 +55,11 @@ export function reserveInventory(
 
       // Record in ledger
       const txId = crypto.randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO inventory_transactions (
           id, package_size_id, transaction_type, quantity, balance_after,
           reason, reference_id, created_by, created_at
-        ) VALUES (?, ?, 'PURCHASE_RESERVE', ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, 'PURCHASE_RESERVE', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         txId,
         item.packageSizeId,
@@ -75,44 +75,44 @@ export function reserveInventory(
   });
 }
 
-export function commitOrderInventory(orderId: string, userId?: string): void {
-  runTransaction((db) => {
-    const items = db.prepare(`
+export async function commitOrderInventory(orderId: string, userId?: string): Promise<void> {
+  await runTransaction(async (db) => {
+    const items = await db.prepare(`
       SELECT package_size_id, quantity, batch_id
       FROM order_items
       WHERE order_id = ?
     `).all(orderId) as Array<{ package_size_id: string; quantity: number; batch_id: string | null }>;
 
     for (const item of items) {
-      const inv = db.prepare(`
+      const inv = await db.prepare(`
         SELECT id, reserved_stock, sold_stock, total_stock, available_stock
         FROM inventory
         WHERE package_size_id = ?
       `).get(item.package_size_id) as any;
 
       if (inv) {
-        const newReserved = Math.max(0, inv.reserved_stock - item.quantity);
-        const newSold = inv.sold_stock + item.quantity;
-        const newTotal = Math.max(0, inv.total_stock - item.quantity);
+        const newReserved = Math.max(0, Number(inv.reserved_stock) - item.quantity);
+        const newSold = Number(inv.sold_stock) + item.quantity;
+        const newTotal = Math.max(0, Number(inv.total_stock) - item.quantity);
 
-        db.prepare(`
+        await db.prepare(`
           UPDATE inventory
-          SET reserved_stock = ?, sold_stock = ?, total_stock = ?, updated_at = datetime('now')
+          SET reserved_stock = ?, sold_stock = ?, total_stock = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `).run(newReserved, newSold, newTotal, inv.id);
 
         const txId = crypto.randomUUID();
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO inventory_transactions (
             id, package_size_id, batch_id, transaction_type, quantity, balance_after,
             reason, reference_id, created_by, created_at
-          ) VALUES (?, ?, ?, 'ORDER_COMMIT', ?, ?, ?, ?, ?, datetime('now'))
+          ) VALUES (?, ?, ?, 'ORDER_COMMIT', ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           txId,
           item.package_size_id,
           item.batch_id,
           -item.quantity,
-          inv.available_stock,
+          Number(inv.available_stock),
           `Committed order ${orderId}`,
           orderId,
           userId || 'system'
@@ -122,38 +122,38 @@ export function commitOrderInventory(orderId: string, userId?: string): void {
   });
 }
 
-export function releaseReservedInventory(orderId: string, reason = 'Order Cancelled', userId?: string): void {
-  runTransaction((db) => {
-    const items = db.prepare(`
+export async function releaseReservedInventory(orderId: string, reason = 'Order Cancelled', userId?: string): Promise<void> {
+  await runTransaction(async (db) => {
+    const items = await db.prepare(`
       SELECT package_size_id, quantity
       FROM order_items
       WHERE order_id = ?
     `).all(orderId) as Array<{ package_size_id: string; quantity: number }>;
 
     for (const item of items) {
-      const inv = db.prepare(`
+      const inv = await db.prepare(`
         SELECT id, available_stock, reserved_stock
         FROM inventory
         WHERE package_size_id = ?
       `).get(item.package_size_id) as any;
 
       if (inv) {
-        const releaseQty = Math.min(inv.reserved_stock, item.quantity);
-        const newAvailable = inv.available_stock + releaseQty;
-        const newReserved = inv.reserved_stock - releaseQty;
+        const releaseQty = Math.min(Number(inv.reserved_stock), item.quantity);
+        const newAvailable = Number(inv.available_stock) + releaseQty;
+        const newReserved = Number(inv.reserved_stock) - releaseQty;
 
-        db.prepare(`
+        await db.prepare(`
           UPDATE inventory
-          SET available_stock = ?, reserved_stock = ?, updated_at = datetime('now')
+          SET available_stock = ?, reserved_stock = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `).run(newAvailable, newReserved, inv.id);
 
         const txId = crypto.randomUUID();
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO inventory_transactions (
             id, package_size_id, transaction_type, quantity, balance_after,
             reason, reference_id, created_by, created_at
-          ) VALUES (?, ?, 'ORDER_CANCEL_RELEASE', ?, ?, ?, ?, ?, datetime('now'))
+          ) VALUES (?, ?, 'ORDER_CANCEL_RELEASE', ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           txId,
           item.package_size_id,
@@ -168,15 +168,15 @@ export function releaseReservedInventory(orderId: string, reason = 'Order Cancel
   });
 }
 
-export function adjustStockManually(params: {
+export async function adjustStockManually(params: {
   packageSizeId: string;
   batchId?: string;
   newAvailableStock: number;
   reason: string;
   userId: string;
-}): void {
-  runTransaction((db) => {
-    const inv = db.prepare(`
+}): Promise<void> {
+  await runTransaction(async (db) => {
+    const inv = await db.prepare(`
       SELECT id, available_stock, reserved_stock, total_stock
       FROM inventory
       WHERE package_size_id = ?
@@ -186,21 +186,21 @@ export function adjustStockManually(params: {
       throw new Error(`Inventory not found for package size ${params.packageSizeId}`);
     }
 
-    const delta = params.newAvailableStock - inv.available_stock;
-    const newTotal = inv.total_stock + delta;
+    const delta = params.newAvailableStock - Number(inv.available_stock);
+    const newTotal = Number(inv.total_stock) + delta;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE inventory
-      SET available_stock = ?, total_stock = ?, updated_at = datetime('now')
+      SET available_stock = ?, total_stock = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(params.newAvailableStock, newTotal, inv.id);
 
     const txId = crypto.randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO inventory_transactions (
         id, package_size_id, batch_id, transaction_type, quantity, balance_after,
         reason, created_by, created_at
-      ) VALUES (?, ?, ?, 'MANUAL_ADJUST', ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, 'MANUAL_ADJUST', ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       txId,
       params.packageSizeId,

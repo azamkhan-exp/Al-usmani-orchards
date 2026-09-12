@@ -22,11 +22,11 @@ export interface FinancialOverview {
   accountsPayableTotal: number;
 }
 
-export function getFinancialOverview(): FinancialOverview {
+export async function getFinancialOverview(): Promise<FinancialOverview> {
   const db = getDatabase();
 
   // 1. Revenue Metrics
-  const revenueQuery = db.prepare(`
+  const revenueQuery = await db.prepare(`
     SELECT 
       COALESCE(SUM(subtotal), 0) as gross_sales,
       COALESCE(SUM(discount_amount), 0) as total_discounts,
@@ -38,14 +38,14 @@ export function getFinancialOverview(): FinancialOverview {
     WHERE status NOT IN ('CANCELLED', 'FAILED')
   `).get() as any;
 
-  const refundQuery = db.prepare(`
+  const refundQuery = await db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total_refunds
     FROM refunds
     WHERE status = 'PROCESSED'
   `).get() as any;
 
   // 2. Expense Metrics
-  const expenseSummary = db.prepare(`
+  const expenseSummary = await db.prepare(`
     SELECT 
       c.name as category,
       COALESCE(SUM(e.amount), 0) as total_amount
@@ -55,21 +55,21 @@ export function getFinancialOverview(): FinancialOverview {
     ORDER BY total_amount DESC
   `).all() as Array<{ category: string; total_amount: number }>;
 
-  const totalExpenses = expenseSummary.reduce((acc, row) => acc + row.total_amount, 0);
+  const totalExpenses = expenseSummary.reduce((acc, row) => acc + Number(row.total_amount), 0);
 
   const expensesByCategory = expenseSummary.map((item) => ({
     category: item.category,
-    amount: item.total_amount,
-    percentage: totalExpenses > 0 ? Math.round((item.total_amount / totalExpenses) * 100) : 0
+    amount: Number(item.total_amount),
+    percentage: totalExpenses > 0 ? Math.round((Number(item.total_amount) / totalExpenses) * 100) : 0
   }));
 
-  const grossSales = revenueQuery.gross_sales;
-  const totalDiscounts = revenueQuery.total_discounts;
-  const netSales = revenueQuery.net_sales;
-  const paidRevenue = revenueQuery.paid_revenue;
-  const pendingCodRevenue = revenueQuery.pending_cod;
-  const totalRefunds = refundQuery.total_refunds;
-  const totalOrdersCount = revenueQuery.total_orders;
+  const grossSales = Number(revenueQuery?.gross_sales || 0);
+  const totalDiscounts = Number(revenueQuery?.total_discounts || 0);
+  const netSales = Number(revenueQuery?.net_sales || 0);
+  const paidRevenue = Number(revenueQuery?.paid_revenue || 0);
+  const pendingCodRevenue = Number(revenueQuery?.pending_cod || 0);
+  const totalRefunds = Number(refundQuery?.total_refunds || 0);
+  const totalOrdersCount = Number(revenueQuery?.total_orders || 0);
   const averageOrderValue = totalOrdersCount > 0 ? Math.round(netSales / totalOrdersCount) : 0;
 
   // Direct Cost of Goods Sold (amortized fruit and direct harvest packing at ~35% of sales)
@@ -80,13 +80,13 @@ export function getFinancialOverview(): FinancialOverview {
   const profitMarginPercent = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
   // 3. Receivables & Payables
-  const arQuery = db.prepare(`
+  const arQuery = await db.prepare(`
     SELECT COALESCE(SUM(amount_due - amount_collected), 0) as pending_receivable
     FROM accounts_receivable
     WHERE status IN ('PENDING', 'PARTIALLY_PAID')
   `).get() as any;
 
-  const apQuery = db.prepare(`
+  const apQuery = await db.prepare(`
     SELECT COALESCE(SUM(amount_due - amount_paid), 0) as pending_payable
     FROM accounts_payable
     WHERE status IN ('PENDING', 'PARTIALLY_PAID')
@@ -106,16 +106,16 @@ export function getFinancialOverview(): FinancialOverview {
     profitMarginPercent,
     totalOrdersCount,
     averageOrderValue,
-    accountsReceivableTotal: arQuery.pending_receivable + pendingCodRevenue,
-    accountsPayableTotal: apQuery.pending_payable
+    accountsReceivableTotal: Number(arQuery?.pending_receivable || 0) + pendingCodRevenue,
+    accountsPayableTotal: Number(apQuery?.pending_payable || 0)
   };
 }
 
-export function getCashFlowTrends(): Array<{ month: string; inflow: number; outflow: number; net: number }> {
+export async function getCashFlowTrends(): Promise<Array<{ month: string; inflow: number; outflow: number; net: number }>> {
   const db = getDatabase();
 
   // Monthly inflow from payments
-  const inflows = db.prepare(`
+  const inflows = await db.prepare(`
     SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total_inflow
     FROM payments
     WHERE status = 'PAID'
@@ -124,7 +124,7 @@ export function getCashFlowTrends(): Array<{ month: string; inflow: number; outf
   `).all() as Array<{ month: string; total_inflow: number }>;
 
   // Monthly outflow from expenses
-  const outflows = db.prepare(`
+  const outflows = await db.prepare(`
     SELECT strftime('%Y-%m', expense_date) as month, SUM(amount) as total_outflow
     FROM expenses
     GROUP BY month
@@ -137,16 +137,16 @@ export function getCashFlowTrends(): Array<{ month: string; inflow: number; outf
     if (!inf.month) continue;
     map.set(inf.month, {
       month: inf.month,
-      inflow: inf.total_inflow,
+      inflow: Number(inf.total_inflow),
       outflow: 0,
-      net: inf.total_inflow
+      net: Number(inf.total_inflow)
     });
   }
 
   for (const out of outflows) {
     if (!out.month) continue;
     const existing = map.get(out.month) || { month: out.month, inflow: 0, outflow: 0, net: 0 };
-    existing.outflow = out.total_outflow;
+    existing.outflow = Number(out.total_outflow);
     existing.net = existing.inflow - existing.outflow;
     map.set(out.month, existing);
   }

@@ -13,7 +13,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized: Admin privileges required.' }, { status: 403 });
     }
 
-    const config = getWhatsAppConfig();
+    const config = await getWhatsAppConfig();
 
     // Mask secret access token
     const maskedToken = config.accessToken
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Test Meta API Connection
     if (action === 'test_connection') {
-      const config = getWhatsAppConfig();
+      const config = await getWhatsAppConfig();
       if (!config.phoneNumberId || !config.accessToken) {
         return NextResponse.json({
           success: false,
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     // 2. Send Test WhatsApp Notification
     if (action === 'send_test') {
       const { phone } = body;
-      const targetPhone = phone || getWhatsAppConfig().adminNotificationNumber;
+      const targetPhone = phone || (await getWhatsAppConfig()).adminNotificationNumber;
 
       const result = await sendWhatsAppMessage({
         to: targetPhone,
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
       ensureDatabaseReady();
       const db = getDatabase();
 
-      const existingRow = db.prepare(`SELECT value_json FROM store_settings WHERE key = 'whatsapp_business'`).get() as any;
+      const existingRow = await db.prepare(`SELECT value_json FROM store_settings WHERE key = 'whatsapp_business'`).get() as any;
       let currentVal = {};
       if (existingRow && existingRow.value_json) {
         try {
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
         updatedVal.access_token = accessToken.trim();
       }
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO store_settings (id, key, value_json, updated_at)
         VALUES ('set_whatsapp_business', 'whatsapp_business', ?, datetime('now'))
         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = datetime('now')

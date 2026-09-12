@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
     const db = getDatabase();
 
-    const rows = db.prepare(`SELECT key, value_json FROM store_settings`).all() as Array<{
+    const rows = (await db.prepare(`SELECT key, value_json FROM store_settings`).all()) as Array<{
       key: string;
       value_json: string;
     }>;
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const couriersList = db.prepare(`
+    const couriersList = await db.prepare(`
       SELECT id, name, code, tracking_url_template, logo_url, cod_supported, is_active
       FROM couriers
       ORDER BY name ASC
@@ -74,15 +74,15 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'New password must be at least 8 characters.' }, { status: 400 });
       }
 
-      const dbUser = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(user.id) as any;
+      const dbUser = (await db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(user.id)) as any;
       if (!dbUser || !verifyPassword(currentPassword, dbUser.password_hash)) {
         return NextResponse.json({ error: 'Current password verification failed.' }, { status: 400 });
       }
 
       const newHash = hashPassword(newPassword);
-      db.prepare(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(newHash, user.id);
+      await db.prepare(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(newHash, user.id);
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'ADMIN_PASSWORD_CHANGED',
@@ -100,29 +100,29 @@ export async function PUT(req: NextRequest) {
       `);
 
       for (const cr of data.couriers) {
-        updateCourier.run(cr.is_active ? 1 : 0, cr.tracking_url_template, cr.id);
+        await updateCourier.run(cr.is_active ? 1 : 0, cr.tracking_url_template, cr.id);
       }
     }
 
     // 3. Upsert into store_settings
     if (section && data) {
       const valueJson = JSON.stringify(data);
-      const existing = db.prepare(`SELECT id FROM store_settings WHERE key = ?`).get(section) as any;
+      const existing = (await db.prepare(`SELECT id FROM store_settings WHERE key = ?`).get(section)) as any;
 
       if (existing) {
-        db.prepare(`
+        await db.prepare(`
           UPDATE store_settings 
           SET value_json = ?, updated_at = datetime('now') 
           WHERE key = ?
         `).run(valueJson, section);
       } else {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO store_settings (id, key, value_json, updated_at)
           VALUES (?, ?, ?, datetime('now'))
         `).run(`set-${section}`, section, valueJson);
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'SETTING_UPDATED',

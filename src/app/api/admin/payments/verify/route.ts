@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const success = verifyManualPayment(transaction_id, user.id, approved, notes);
+    const success = await verifyManualPayment(transaction_id, user.id, approved, notes);
     if (!success) {
       return NextResponse.json({ error: 'Transaction not found or could not be updated.' }, { status: 404 });
     }
 
-    const pending = getPendingVerificationPayments();
+    const pending = await getPendingVerificationPayments();
 
     return NextResponse.json({
       success: true,

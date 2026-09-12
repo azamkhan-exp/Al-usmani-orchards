@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const guard = assertFeatureEnabled('back_in_stock');
+  const guard = await assertFeatureEnabled('back_in_stock');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -31,19 +31,19 @@ export async function POST(req: NextRequest) {
     const user = await getCurrentUser();
     let customerId: string | null = null;
     if (user) {
-      const cust = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+      const cust = (await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id)) as any;
       customerId = cust?.id || null;
     }
 
     // Verify product exists
-    const prod = db.prepare('SELECT name FROM products WHERE id = ?').get(productId) as any;
+    const prod = (await db.prepare('SELECT name FROM products WHERE id = ?').get(productId)) as any;
     if (!prod) {
       return NextResponse.json({ error: 'Selected variety does not exist.' }, { status: 404 });
     }
 
     const subId = `sub_${crypto.randomUUID()}`;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO back_in_stock_subscriptions (
         id, product_id, package_size_id, email, phone, customer_id, notified, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'))

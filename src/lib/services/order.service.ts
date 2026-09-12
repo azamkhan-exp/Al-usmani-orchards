@@ -29,10 +29,10 @@ export interface CheckoutRequest {
   userId?: string;
 }
 
-export function generateOrderNumber(database?: any): string {
+export async function generateOrderNumber(database?: any): Promise<string> {
   try {
     const db = database || getDatabase();
-    const row = db.prepare(`SELECT value_json FROM store_settings WHERE key = 'orders'`).get() as any;
+    const row = await db.prepare(`SELECT value_json FROM store_settings WHERE key = 'orders'`).get() as any;
     if (row && row.value_json) {
       const parsed = JSON.parse(row.value_json);
       const prefix = parsed.order_prefix || 'AUO-';
@@ -40,7 +40,7 @@ export function generateOrderNumber(database?: any): string {
       const orderNumber = `${prefix}${currentNum}`;
 
       parsed.next_order_number = currentNum + 1;
-      db.prepare(`UPDATE store_settings SET value_json = ?, updated_at = datetime('now') WHERE key = 'orders'`)
+      await db.prepare(`UPDATE store_settings SET value_json = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'orders'`)
         .run(JSON.stringify(parsed));
 
       return orderNumber;
@@ -52,14 +52,14 @@ export function generateOrderNumber(database?: any): string {
   return `AUO-${fallbackNum}`;
 }
 
-export function createOrder(request: CheckoutRequest): {
+export async function createOrder(request: CheckoutRequest): Promise<{
   success: boolean;
   orderId?: string;
   orderNumber?: string;
   totalAmount?: number;
   error?: string;
-} {
-  const orderResult = runTransaction((db) => {
+}> {
+  const orderResult = await runTransaction(async (db) => {
     if (!request.items || request.items.length === 0) {
       return { success: false, error: 'Cart cannot be empty.' };
     }
@@ -81,7 +81,7 @@ export function createOrder(request: CheckoutRequest): {
     let totalWeightKg = 0;
 
     for (const item of request.items) {
-      const pkg = db.prepare(`
+      const pkg = await db.prepare(`
         SELECT 
           ps.id as package_id, ps.name as package_name, ps.weight_kg, 
           COALESCE(ps.sale_price, ps.base_price) as effective_price,
@@ -97,9 +97,9 @@ export function createOrder(request: CheckoutRequest): {
         return { success: false, error: `Invalid or inactive package size: ${item.packageSizeId}` };
       }
 
-      const unitPrice = pkg.effective_price;
+      const unitPrice = Number(pkg.effective_price);
       const subtotal = unitPrice * item.quantity;
-      totalWeightKg += pkg.weight_kg * item.quantity;
+      totalWeightKg += Number(pkg.weight_kg) * item.quantity;
 
       evaluatedItems.push({
         packageSizeId: pkg.package_id,
@@ -115,7 +115,7 @@ export function createOrder(request: CheckoutRequest): {
         varietyId: pkg.variety_id,
         varietyName: pkg.variety_name,
         packageName: pkg.package_name,
-        weightKg: pkg.weight_kg,
+        weightKg: Number(pkg.weight_kg),
         unitPrice,
         quantity: item.quantity,
         subtotal
@@ -123,7 +123,7 @@ export function createOrder(request: CheckoutRequest): {
     }
 
     // 2. Evaluate Discounts & Promo Engine
-    const discountResult = evaluateOrderDiscounts(
+    const discountResult = await evaluateOrderDiscounts(
       evaluatedItems,
       request.couponCode,
       request.customer?.email
@@ -136,7 +136,7 @@ export function createOrder(request: CheckoutRequest): {
     // 3. Shipping fee based on destination city, weight, and subtotal threshold
     const destinationCity = request.customer?.city || 'Lahore';
     const netSubtotal = Math.max(0, discountResult.subtotal - discountResult.totalDiscount);
-    const shippingFee = calculateShippingFee(totalWeightKg, destinationCity, netSubtotal);
+    const shippingFee = await calculateShippingFee(totalWeightKg, destinationCity, netSubtotal);
 
     // 4. Calculate final total
     const subtotal = discountResult.subtotal;
@@ -146,7 +146,7 @@ export function createOrder(request: CheckoutRequest): {
 
     // 4b. Authoritative Payment Method Availability Validation
     const productIds = Array.from(new Set(itemDetails.map((i) => i.productId)));
-    const allowedPaymentMethods = determineAvailablePaymentMethods(productIds);
+    const allowedPaymentMethods = await determineAvailablePaymentMethods(productIds);
     let requestedMethod = (request.paymentMethod || 'COD').toUpperCase();
     if (requestedMethod === 'BANK_TRANSFER') requestedMethod = 'EASYPAISA';
     if (requestedMethod === 'ONLINE_CARD') requestedMethod = 'CARD';
@@ -161,9 +161,9 @@ export function createOrder(request: CheckoutRequest): {
 
     // 5. Reserve Inventory
     const orderId = crypto.randomUUID();
-    const orderNumber = generateOrderNumber(db);
+    const orderNumber = await generateOrderNumber(db);
 
-    const reservation = reserveInventory(
+    const reservation = await reserveInventory(
       request.items.map((i) => ({ packageSizeId: i.packageSizeId, quantity: i.quantity })),
       orderNumber,
       request.userId
@@ -182,11 +182,11 @@ export function createOrder(request: CheckoutRequest): {
 
     if (request.userId) {
       // Authenticated checkout: Primary anchor is user_id
-      const cust = db.prepare('SELECT id, user_id, email FROM customers WHERE user_id = ?').get(request.userId) as any;
+      const cust = await db.prepare('SELECT id, user_id, email FROM customers WHERE user_id = ?').get(request.userId) as any;
 
       if (cust) {
         customerId = cust.id;
-        db.prepare(`
+        await db.prepare(`
           UPDATE customers 
           SET phone = COALESCE(phone, ?), city = COALESCE(city, ?)
           WHERE id = ?
@@ -194,10 +194,10 @@ export function createOrder(request: CheckoutRequest): {
       } else {
         // Check if an unlinked guest record exists with this email
         if (customerEmail) {
-          const guestCust = db.prepare('SELECT id, user_id FROM customers WHERE LOWER(email) = ?').get(customerEmail) as any;
+          const guestCust = await db.prepare('SELECT id, user_id FROM customers WHERE LOWER(email) = ?').get(customerEmail) as any;
           if (guestCust && !guestCust.user_id) {
             customerId = guestCust.id;
-            db.prepare('UPDATE customers SET user_id = ?, phone = COALESCE(phone, ?), city = COALESCE(city, ?) WHERE id = ?')
+            await db.prepare('UPDATE customers SET user_id = ?, phone = COALESCE(phone, ?), city = COALESCE(city, ?) WHERE id = ?')
               .run(request.userId, customerPhone, customerCity, guestCust.id);
           }
         }
@@ -206,14 +206,14 @@ export function createOrder(request: CheckoutRequest): {
         if (!customerId) {
           customerId = crypto.randomUUID();
           const referralCode = `AUO-${Math.floor(1000 + Math.random() * 9000)}`;
-          const userAccount = db.prepare('SELECT email, name FROM users WHERE id = ?').get(request.userId) as any;
-          const emailToUse = (customerEmail && !db.prepare('SELECT id FROM customers WHERE LOWER(email) = ?').get(customerEmail))
+          const userAccount = await db.prepare('SELECT email, name FROM users WHERE id = ?').get(request.userId) as any;
+          const emailToUse = (customerEmail && !(await db.prepare('SELECT id FROM customers WHERE LOWER(email) = ?').get(customerEmail)))
             ? customerEmail
             : (userAccount?.email?.toLowerCase() || `${request.userId}@alusmaniorchards.pk`);
 
-          db.prepare(`
+          await db.prepare(`
             INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'NEW', 0, 0, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, 'NEW', 0, 0, ?, CURRENT_TIMESTAMP)
           `).run(
             customerId,
             request.userId,
@@ -227,16 +227,16 @@ export function createOrder(request: CheckoutRequest): {
       }
     } else if (customerEmail) {
       // Guest checkout: Lookup by email
-      const cust = db.prepare('SELECT id FROM customers WHERE LOWER(email) = ?').get(customerEmail) as any;
+      const cust = await db.prepare('SELECT id FROM customers WHERE LOWER(email) = ?').get(customerEmail) as any;
 
       if (cust) {
         customerId = cust.id;
       } else {
         customerId = crypto.randomUUID();
         const referralCode = `AUO-${Math.floor(1000 + Math.random() * 9000)}`;
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at)
-          VALUES (?, NULL, ?, ?, ?, ?, 'NEW', 0, 0, ?, datetime('now'))
+          VALUES (?, NULL, ?, ?, ?, ?, 'NEW', 0, 0, ?, CURRENT_TIMESTAMP)
         `).run(
           customerId,
           customerName,
@@ -259,13 +259,13 @@ export function createOrder(request: CheckoutRequest): {
       initialPaymentStatus = 'PENDING';
     }
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO orders (
         id, order_number, customer_id, guest_email, guest_name, guest_phone,
         status, subtotal, discount_amount, shipping_fee, tax_amount, total_amount,
         payment_method, payment_status, coupon_code, shipping_address_json,
         is_gift, gift_recipient, gift_message, customer_notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).run(
       orderId,
       orderNumber,
@@ -299,7 +299,7 @@ export function createOrder(request: CheckoutRequest): {
 
     // 8. Insert Order Items
     for (const item of itemDetails) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO order_items (
           id, order_id, product_id, package_size_id, variety_name,
           package_name, unit_weight_kg, unit_price, quantity, subtotal
@@ -319,15 +319,15 @@ export function createOrder(request: CheckoutRequest): {
     }
 
     // 8b. Record Authoritative Payment Transaction Ledger Entry
-    recordPaymentTransaction(orderId, requestedMethod, totalAmount, {
+    await recordPaymentTransaction(orderId, requestedMethod, totalAmount, {
       transaction_reference: request.paymentReference,
       status: initialPaymentStatus as any
     });
 
     // 9. Order Timeline Entry
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO order_timeline (id, order_id, status, title, description, created_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       crypto.randomUUID(),
       orderId,
@@ -338,7 +338,7 @@ export function createOrder(request: CheckoutRequest): {
 
     // 10. If Coupon used, increment usage count
     if (request.couponCode) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE promotions 
         SET times_used = times_used + 1
         WHERE UPPER(code) = ?
@@ -347,11 +347,11 @@ export function createOrder(request: CheckoutRequest): {
 
     // 11. If COD, create Accounts Receivable entry
     if (requestedMethod === 'COD') {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO accounts_receivable (
           id, order_id, debtor_type, debtor_name, amount_due, amount_collected,
           status, due_date
-        ) VALUES (?, ?, 'COURIER_COD', ?, ?, 0, 'PENDING', date('now', '+5 days'))
+        ) VALUES (?, ?, 'COURIER_COD', ?, ?, 0, 'PENDING', CURRENT_DATE + INTERVAL '5 days')
       `).run(
         crypto.randomUUID(),
         orderId,
@@ -362,7 +362,7 @@ export function createOrder(request: CheckoutRequest): {
 
     // 12. If customer exists, update total spent and orders count
     if (customerId) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE customers
         SET total_spent = total_spent + ?, orders_count = orders_count + 1
         WHERE id = ?
@@ -399,33 +399,33 @@ export function createOrder(request: CheckoutRequest): {
   return orderResult;
 }
 
-export function updateOrderStatus(
+export async function updateOrderStatus(
   orderId: string,
   newStatus: string,
   notes?: string,
   userId?: string
-): void {
-  runTransaction((db) => {
-    const order = db.prepare('SELECT id, order_number, status, payment_status FROM orders WHERE id = ?').get(orderId) as any;
+): Promise<void> {
+  await runTransaction(async (db) => {
+    const order = await db.prepare('SELECT id, order_number, status, payment_status FROM orders WHERE id = ?').get(orderId) as any;
     if (!order) throw new Error(`Order ${orderId} not found`);
 
-    db.prepare(`UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`)
+    await db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
       .run(newStatus, orderId);
 
     // If order is cancelled, release reserved stock
     if (newStatus === 'CANCELLED') {
-      releaseReservedInventory(orderId, notes || 'Cancelled by admin/customer', userId);
+      await releaseReservedInventory(orderId, notes || 'Cancelled by admin/customer', userId);
     }
 
     // If order is paid/packing/shipped, commit inventory
     if (['PACKING', 'PACKED', 'READY_FOR_DISPATCH', 'READY_TO_SHIP', 'SHIPPED'].includes(newStatus)) {
-      commitOrderInventory(orderId, userId);
+      await commitOrderInventory(orderId, userId);
     }
 
     // Timeline event
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO order_timeline (id, order_id, status, title, description, created_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       crypto.randomUUID(),
       orderId,

@@ -11,7 +11,8 @@ export async function GET() {
     const db = getDatabase();
 
     // Check if delivery_zones has records, if not seed default zones
-    const count = (db.prepare('SELECT count(*) as count FROM delivery_zones').get() as any)?.count || 0;
+    const countRow = (await db.prepare('SELECT count(*) as count FROM delivery_zones').get()) as any;
+    const count = Number(countRow?.count || 0);
     if (count === 0) {
       const crypto = require('node:crypto');
       const seedZones = [
@@ -68,7 +69,7 @@ export async function GET() {
       ];
 
       for (const z of seedZones) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO delivery_zones (
             id, name, cities_json, delivery_fee, free_delivery_threshold, estimated_days, cod_available, is_active, is_international, country_code
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
@@ -76,7 +77,7 @@ export async function GET() {
       }
     }
 
-    const isIntlEnabled = isFeatureEnabled('international_ordering');
+    const isIntlEnabled = await isFeatureEnabled('international_ordering');
 
     let query = 'SELECT * FROM delivery_zones WHERE is_active = 1';
     if (!isIntlEnabled) {
@@ -84,7 +85,7 @@ export async function GET() {
     }
     query += ' ORDER BY is_international ASC, delivery_fee ASC';
 
-    const zones = db.prepare(query).all();
+    const zones = await db.prepare(query).all();
 
     return NextResponse.json({
       success: true,

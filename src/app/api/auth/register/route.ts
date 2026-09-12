@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const db = getDatabase();
 
-    const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail);
+    const existing = await db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail);
     if (existing) {
       return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 });
     }
@@ -41,13 +41,13 @@ export async function POST(req: NextRequest) {
     const passwordHash = hashPassword(password);
     const referralCode = `AUO-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    runTransaction((database) => {
-      database.prepare(`
+    await runTransaction(async (database) => {
+      await database.prepare(`
         INSERT INTO users (id, name, email, password_hash, role, phone, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, 'CUSTOMER', ?, 'ACTIVE', datetime('now'), datetime('now'))
       `).run(userId, name.trim(), cleanEmail, passwordHash, phone || null);
 
-      database.prepare(`
+      await database.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, total_spent, orders_count, referral_code, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 'NEW', 0, 0, ?, datetime('now'))
       `).run(customerId, userId, name.trim(), cleanEmail, phone || null, city || null, referralCode);

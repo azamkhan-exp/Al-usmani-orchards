@@ -28,14 +28,14 @@ export async function POST(req: NextRequest) {
     let totalWeightKg = 0;
 
     for (const item of items) {
-      const pkg = db.prepare(`
+      const pkg = (await db.prepare(`
         SELECT 
           ps.id, ps.weight_kg, COALESCE(ps.sale_price, ps.base_price) as price,
           p.id as product_id, p.variety_id
         FROM package_sizes ps
         JOIN products p ON p.id = ps.product_id
         WHERE ps.id = ? AND ps.is_active = 1
-      `).get(item.packageSizeId) as any;
+      `).get(item.packageSizeId)) as any;
 
       if (!pkg) continue;
 
@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
       totalWeightKg += pkg.weight_kg * item.quantity;
     }
 
-    const discountResult = evaluateOrderDiscounts(evaluatedItems, couponCode, customerEmail);
-    const shippingFee = calculateShippingFee(totalWeightKg, destinationCity || 'Lahore', discountResult.finalAmount);
+    const discountResult = await evaluateOrderDiscounts(evaluatedItems, couponCode, customerEmail);
+    const shippingFee = await calculateShippingFee(totalWeightKg, destinationCity || 'Lahore', discountResult.finalAmount);
     const grandTotal = Math.max(0, discountResult.finalAmount + shippingFee);
 
     return NextResponse.json({

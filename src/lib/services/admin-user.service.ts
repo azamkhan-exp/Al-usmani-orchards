@@ -47,21 +47,21 @@ export interface AdminInvitationSummary {
 /**
  * Lists all administrative users and active pending invitations.
  */
-export function listAdminUsers(): {
+export async function listAdminUsers(): Promise<{
   admins: AdminUserSummary[];
   invitations: AdminInvitationSummary[];
   totalActiveAdmins: number;
   superAdminCount: number;
-} {
+}> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   const rolePlaceholders = VALID_ADMIN_ROLES.map(() => '?').join(', ');
-  const adminUsers = db.prepare(`
+  const adminUsers = await db.prepare(`
     SELECT 
       u.id, u.name, u.username, u.email, u.phone, u.security_phone,
       u.security_phone_verified, u.role, u.status, u.last_login_at, u.created_at,
-      (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id AND s.expires_at > datetime('now')) as active_sessions
+      (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id AND s.expires_at > CURRENT_TIMESTAMP) as active_sessions
     FROM users u
     WHERE u.role IN (${rolePlaceholders})
     ORDER BY 
@@ -78,13 +78,13 @@ export function listAdminUsers(): {
       u.created_at ASC
   `).all(...VALID_ADMIN_ROLES) as any[];
 
-  const invitations = db.prepare(`
+  const invitations = await db.prepare(`
     SELECT 
       inv.id, inv.email, inv.name, inv.role, inv.invited_by, inv.expires_at, inv.is_accepted, inv.created_at,
       u.name as invited_by_name
     FROM admin_invitations inv
     LEFT JOIN users u ON u.id = inv.invited_by
-    WHERE inv.is_accepted = 0 AND inv.expires_at > datetime('now')
+    WHERE inv.is_accepted = 0 AND inv.expires_at > CURRENT_TIMESTAMP
     ORDER BY inv.created_at DESC
   `).all() as any[];
 
@@ -128,7 +128,7 @@ export function listAdminUsers(): {
 /**
  * Creates an administrator record directly with credentials.
  */
-export function createAdminUserDirectly(params: {
+export async function createAdminUserDirectly(params: {
   name: string;
   email: string;
   role: UserRole;
@@ -136,7 +136,7 @@ export function createAdminUserDirectly(params: {
   phone?: string;
   actorUserId?: string;
   actorUserEmail?: string;
-}): { success: boolean; user?: AdminUserSummary; error?: string } {
+}): Promise<{ success: boolean; user?: AdminUserSummary; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -157,20 +157,20 @@ export function createAdminUserDirectly(params: {
     return { success: false, error: 'Password must be at least 8 characters in length.' };
   }
 
-  const existingUser = db.prepare('SELECT id, role, email FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
+  const existingUser = await db.prepare('SELECT id, role, email FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
   if (existingUser) {
     if (VALID_ADMIN_ROLES.includes(existingUser.role)) {
       return { success: false, error: 'That user is already an administrator.' };
     }
     // Promote customer to administrative role
     const passwordHash = hashPassword(params.password);
-    db.prepare(`
+    await db.prepare(`
       UPDATE users 
-      SET name = ?, role = ?, password_hash = ?, phone = COALESCE(?, phone), status = 'ACTIVE', updated_at = datetime('now')
+      SET name = ?, role = ?, password_hash = ?, phone = COALESCE(?, phone), status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(params.name.trim(), params.role, passwordHash, params.phone?.trim() || null, existingUser.id);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: params.actorUserId,
       userEmail: params.actorUserEmail,
       action: 'ADMIN_CREATED',
@@ -202,9 +202,9 @@ export function createAdminUserDirectly(params: {
   const userId = crypto.randomUUID();
   const passwordHash = hashPassword(params.password);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO users (id, name, email, password_hash, role, phone, email_verified, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, 'ACTIVE', datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, 1, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     userId,
     params.name.trim(),
@@ -214,7 +214,7 @@ export function createAdminUserDirectly(params: {
     params.phone?.trim() || null
   );
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: 'ADMIN_CREATED',
@@ -274,7 +274,7 @@ export async function createAdminInvitation(params: {
   }
 
   // Check if email already belongs to an active administrator
-  const existingAdmin = db.prepare(`
+  const existingAdmin = await db.prepare(`
     SELECT id, email, role, status FROM users WHERE LOWER(email) = ? AND role IN (${VALID_ADMIN_ROLES.map(() => '?').join(',')})
   `).get(cleanEmail, ...VALID_ADMIN_ROLES) as any;
 
@@ -289,12 +289,12 @@ export async function createAdminInvitation(params: {
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 48 Hours expiration
 
   // Invalidate any existing pending invitation for this email
-  db.prepare(`DELETE FROM admin_invitations WHERE LOWER(email) = ?`).run(cleanEmail);
+  await db.prepare(`DELETE FROM admin_invitations WHERE LOWER(email) = ?`).run(cleanEmail);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO admin_invitations (
       id, email, name, role, token_hash, invited_by, expires_at, is_accepted, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
   `).run(
     invitationId,
     cleanEmail,
@@ -343,7 +343,7 @@ export async function createAdminInvitation(params: {
     console.warn('[ADMIN_INVITE] Email dispatch fell back to link:', emailErr);
   }
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.invitedByUserId,
     userEmail: params.invitedByUserEmail,
     action: 'ADMIN_INVITATION_SENT',
@@ -363,12 +363,6 @@ export async function createAdminInvitation(params: {
 
 /**
  * Authorizes a user as an administrator by email address.
- * Follows Phase 4 & Phase 5 requirements:
- * - Validates email and role.
- * - Checks if user exists.
- * - If already an active administrator: returns { success: false, error: 'That user is already an administrator.' }
- * - If user exists as a customer: updates role to the assigned administrative role, sets status ACTIVE, logs audit trail, returns "Administrator added successfully."
- * - If user does not exist: creates a 48-hour secure invitation token, returns "Administrator added successfully." with invitation link.
  */
 export async function authorizeAdminByEmail(params: {
   email: string;
@@ -396,7 +390,7 @@ export async function authorizeAdminByEmail(params: {
     return { success: false, error: `Invalid administrative role: ${params.role}` };
   }
 
-  const existingUser = db.prepare('SELECT id, name, role, email, status FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
+  const existingUser = await db.prepare('SELECT id, name, role, email, status FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
 
   if (existingUser) {
     if (VALID_ADMIN_ROLES.includes(existingUser.role)) {
@@ -408,13 +402,13 @@ export async function authorizeAdminByEmail(params: {
     }
 
     // Existing customer -> promote to administrative staff
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
-      SET role = ?, status = 'ACTIVE', updated_at = datetime('now')
+      SET role = ?, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(params.role, existingUser.id);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: params.actorUserId,
       userEmail: params.actorUserEmail,
       action: 'ADMIN_PROMOTED_BY_EMAIL',
@@ -467,14 +461,14 @@ export async function authorizeAdminByEmail(params: {
 /**
  * Validates an invitation token for the acceptance UI.
  */
-export function validateInvitationToken(token: string): {
+export async function validateInvitationToken(token: string): Promise<{
   valid: boolean;
   email?: string;
   name?: string | null;
   role?: UserRole;
   expires_at?: string;
   error?: string;
-} {
+}> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -483,8 +477,8 @@ export function validateInvitationToken(token: string): {
   }
 
   const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
-  const row = db.prepare(`
-    SELECT id, email, name, role, expires_at, is_accepted, (expires_at <= datetime('now')) as is_expired
+  const row = await db.prepare(`
+    SELECT id, email, name, role, expires_at, is_accepted, (expires_at <= CURRENT_TIMESTAMP) as is_expired
     FROM admin_invitations
     WHERE token_hash = ?
   `).get(tokenHash) as any;
@@ -493,11 +487,11 @@ export function validateInvitationToken(token: string): {
     return { valid: false, error: 'Invitation not found or invalid.' };
   }
 
-  if (row.is_accepted === 1) {
+  if (Number(row.is_accepted) === 1) {
     return { valid: false, error: 'This invitation has already been accepted.' };
   }
 
-  if (row.is_expired === 1) {
+  if (Boolean(row.is_expired)) {
     return { valid: false, error: 'This invitation link has expired. Please request a new invitation.' };
   }
 
@@ -529,7 +523,7 @@ export async function acceptAdminInvitation(params: {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const validation = validateInvitationToken(params.token);
+  const validation = await validateInvitationToken(params.token);
   if (!validation.valid || !validation.email || !validation.role) {
     return { success: false, error: validation.error || 'Invalid invitation.' };
   }
@@ -548,30 +542,30 @@ export async function acceptAdminInvitation(params: {
 
   let userId: string;
 
-  const result = runTransaction((txDb) => {
+  await runTransaction(async (txDb) => {
     // Mark invitation as accepted
-    txDb.prepare(`
+    await txDb.prepare(`
       UPDATE admin_invitations 
-      SET is_accepted = 1, accepted_at = datetime('now')
+      SET is_accepted = 1, accepted_at = CURRENT_TIMESTAMP
       WHERE token_hash = ?
     `).run(tokenHash);
 
     // Check if user exists
-    const existing = txDb.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
+    const existing = await txDb.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
     if (existing) {
       userId = existing.id;
-      txDb.prepare(`
+      await txDb.prepare(`
         UPDATE users 
         SET name = ?, password_hash = ?, role = ?, phone = COALESCE(?, phone),
-            status = 'ACTIVE', email_verified = 1, updated_at = datetime('now')
+            status = 'ACTIVE', email_verified = 1, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(params.name.trim(), passwordHash, validation.role, params.phone?.trim() || null, userId);
     } else {
       userId = crypto.randomUUID();
-      txDb.prepare(`
+      await txDb.prepare(`
         INSERT INTO users (
           id, name, email, password_hash, role, phone, email_verified, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 1, 'ACTIVE', datetime('now'), datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `).run(userId, params.name.trim(), cleanEmail, passwordHash, validation.role, params.phone?.trim() || null);
     }
   });
@@ -583,7 +577,7 @@ export async function acceptAdminInvitation(params: {
     params.userAgent || 'StaffOnboarding'
   );
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: userId!,
     userEmail: cleanEmail,
     action: 'ADMIN_INVITATION_ACCEPTED',
@@ -616,12 +610,12 @@ export async function acceptAdminInvitation(params: {
 /**
  * Updates an administrator's role with strict Super Admin protection.
  */
-export function updateAdminRole(params: {
+export async function updateAdminRole(params: {
   targetUserId: string;
   newRole: UserRole;
   actorUserId: string;
   actorUserEmail: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -629,7 +623,7 @@ export function updateAdminRole(params: {
     return { success: false, error: `Invalid role: ${params.newRole}` };
   }
 
-  const target = db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
+  const target = await db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
   if (!target) {
     return { success: false, error: 'Target user not found.' };
   }
@@ -640,11 +634,11 @@ export function updateAdminRole(params: {
 
   // Super Admin Demotion Protection
   if (target.role === 'SUPER_ADMIN' && params.newRole !== 'SUPER_ADMIN') {
-    const otherSuperAdmins = db.prepare(`
+    const otherSuperAdmins = await db.prepare(`
       SELECT count(*) as c FROM users WHERE role = 'SUPER_ADMIN' AND status = 'ACTIVE' AND id != ?
     `).get(params.targetUserId) as { c: number };
 
-    if (!otherSuperAdmins || otherSuperAdmins.c < 1) {
+    if (!otherSuperAdmins || Number(otherSuperAdmins.c) < 1) {
       return {
         success: false,
         error: 'Operation rejected: Cannot demote the sole active Super Administrator. At least one active Super Administrator must always exist.'
@@ -659,9 +653,9 @@ export function updateAdminRole(params: {
     }
   }
 
-  db.prepare(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`).run(params.newRole, params.targetUserId);
+  await db.prepare(`UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(params.newRole, params.targetUserId);
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: 'ADMIN_ROLE_CHANGED',
@@ -677,16 +671,16 @@ export function updateAdminRole(params: {
 /**
  * Updates an administrator's status (ACTIVE vs SUSPENDED) with Super Admin protection.
  */
-export function updateAdminStatus(params: {
+export async function updateAdminStatus(params: {
   targetUserId: string;
   newStatus: 'ACTIVE' | 'SUSPENDED';
   actorUserId: string;
   actorUserEmail: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const target = db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
+  const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
   if (!target) {
     return { success: false, error: 'Target user not found.' };
   }
@@ -697,11 +691,11 @@ export function updateAdminStatus(params: {
 
   // Super Admin Suspension Protection
   if (target.role === 'SUPER_ADMIN' && params.newStatus === 'SUSPENDED') {
-    const otherSuperAdmins = db.prepare(`
+    const otherSuperAdmins = await db.prepare(`
       SELECT count(*) as c FROM users WHERE role = 'SUPER_ADMIN' AND status = 'ACTIVE' AND id != ?
     `).get(params.targetUserId) as { c: number };
 
-    if (!otherSuperAdmins || otherSuperAdmins.c < 1) {
+    if (!otherSuperAdmins || Number(otherSuperAdmins.c) < 1) {
       return {
         success: false,
         error: 'Operation rejected: Cannot suspend the sole active Super Administrator.'
@@ -716,15 +710,15 @@ export function updateAdminStatus(params: {
     }
   }
 
-  runTransaction((txDb) => {
-    txDb.prepare(`UPDATE users SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(params.newStatus, params.targetUserId);
+  await runTransaction(async (txDb) => {
+    await txDb.prepare(`UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(params.newStatus, params.targetUserId);
     if (params.newStatus === 'SUSPENDED') {
       // Immediately revoke all active sessions
-      txDb.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
+      await txDb.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
     }
   });
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: params.newStatus === 'ACTIVE' ? 'ADMIN_ENABLED' : 'ADMIN_DISABLED',
@@ -740,26 +734,26 @@ export function updateAdminStatus(params: {
 /**
  * Deletes an administrator with Super Admin protection.
  */
-export function deleteAdminUser(params: {
+export async function deleteAdminUser(params: {
   targetUserId: string;
   actorUserId: string;
   actorUserEmail: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const target = db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
+  const target = await db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').get(params.targetUserId) as any;
   if (!target) {
     return { success: false, error: 'Target administrator not found.' };
   }
 
   // Super Admin Removal Protection
   if (target.role === 'SUPER_ADMIN') {
-    const otherSuperAdmins = db.prepare(`
+    const otherSuperAdmins = await db.prepare(`
       SELECT count(*) as c FROM users WHERE role = 'SUPER_ADMIN' AND status = 'ACTIVE' AND id != ?
     `).get(params.targetUserId) as { c: number };
 
-    if (!otherSuperAdmins || otherSuperAdmins.c < 1) {
+    if (!otherSuperAdmins || Number(otherSuperAdmins.c) < 1) {
       return {
         success: false,
         error: 'Operation rejected: Cannot remove the sole active Super Administrator.'
@@ -774,21 +768,21 @@ export function deleteAdminUser(params: {
     }
   }
 
-  runTransaction((txDb) => {
+  await runTransaction(async (txDb) => {
     // Purge active sessions
-    txDb.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
+    await txDb.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
 
     // Check if user has associated customer orders
-    const hasOrders = txDb.prepare('SELECT count(*) as c FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE user_id = ?)').get(params.targetUserId) as any;
-    if (hasOrders && hasOrders.c > 0) {
+    const hasOrders = await txDb.prepare('SELECT count(*) as c FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE user_id = ?)').get(params.targetUserId) as any;
+    if (hasOrders && Number(hasOrders.c) > 0) {
       // Demote to customer rather than breaking relational integrity
-      txDb.prepare("UPDATE users SET role = 'CUSTOMER', status = 'ACTIVE', updated_at = datetime('now') WHERE id = ?").run(params.targetUserId);
+      await txDb.prepare("UPDATE users SET role = 'CUSTOMER', status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(params.targetUserId);
     } else {
-      txDb.prepare('DELETE FROM users WHERE id = ?').run(params.targetUserId);
+      await txDb.prepare('DELETE FROM users WHERE id = ?').run(params.targetUserId);
     }
   });
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: 'ADMIN_REMOVED',
@@ -803,47 +797,47 @@ export function deleteAdminUser(params: {
 /**
  * Revokes all sessions for a specific administrator immediately.
  */
-export function revokeAdminSessions(params: {
+export async function revokeAdminSessions(params: {
   targetUserId: string;
   actorUserId: string;
   actorUserEmail: string;
-}): { success: boolean; revokedCount: number; error?: string } {
+}): Promise<{ success: boolean; revokedCount: number; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const res = db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
+  const res = await db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(params.targetUserId);
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: 'ADMIN_SESSION_REVOKED',
     resourceType: 'USER_SESSIONS',
     resourceId: params.targetUserId,
-    newState: { revokedSessions: res.changes }
+    newState: { revokedSessions: (res as any).changes }
   });
 
-  return { success: true, revokedCount: res.changes };
+  return { success: true, revokedCount: (res as any).changes };
 }
 
 /**
  * Cancels a pending invitation.
  */
-export function cancelAdminInvitation(params: {
+export async function cancelAdminInvitation(params: {
   invitationId: string;
   actorUserId: string;
   actorUserEmail: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const inv = db.prepare('SELECT id, email, role FROM admin_invitations WHERE id = ?').get(params.invitationId) as any;
+  const inv = await db.prepare('SELECT id, email, role FROM admin_invitations WHERE id = ?').get(params.invitationId) as any;
   if (!inv) {
     return { success: false, error: 'Invitation not found.' };
   }
 
-  db.prepare('DELETE FROM admin_invitations WHERE id = ?').run(params.invitationId);
+  await db.prepare('DELETE FROM admin_invitations WHERE id = ?').run(params.invitationId);
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: params.actorUserId,
     userEmail: params.actorUserEmail,
     action: 'ADMIN_INVITATION_CANCELLED',

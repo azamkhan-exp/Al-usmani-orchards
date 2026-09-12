@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     };
 
     console.log(`[CHECKOUT] Processing checkout request for ${body.customer?.email || 'guest'} (User: ${user?.id || 'guest'})`);
-    const result = createOrder(checkoutData);
+    const result = await createOrder(checkoutData);
 
     if (!result.success) {
       console.warn(`[CHECKOUT] Order creation failed: ${result.error}`);

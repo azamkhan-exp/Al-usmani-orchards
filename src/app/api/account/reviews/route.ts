@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const guard = assertFeatureEnabled('product_reviews');
+  const guard = await assertFeatureEnabled('product_reviews');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -22,12 +22,12 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       return NextResponse.json({ success: true, reviews: [] });
     }
 
-    const reviews = db.prepare(`
+    const reviews = await db.prepare(`
       SELECT 
         r.id,
         r.product_id,
@@ -62,7 +62,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = assertFeatureEnabled('product_reviews');
+  const guard = await assertFeatureEnabled('product_reviews');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     // Check photo reviews flag
     let photosList: string[] = [];
     if (photos && Array.isArray(photos) && photos.length > 0) {
-      if (isFeatureEnabled('photo_reviews')) {
+      if (await isFeatureEnabled('photo_reviews')) {
         photosList = photos.slice(0, 3);
       }
     }
@@ -96,18 +96,18 @@ export async function POST(req: NextRequest) {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    let customer = db.prepare('SELECT id, city, full_name FROM customers WHERE user_id = ?').get(user.id) as any;
+    let customer = await db.prepare('SELECT id, city, full_name FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       const customerId = crypto.randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, city, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(customerId, user.id, user.name || 'Valued Patron', user.email, (user as any).phone || null, city || 'Multan');
       customer = { id: customerId, city: city || 'Multan', full_name: user.name || 'Valued Patron' };
     }
 
     // Check if verified purchase
-    const verifiedOrder = db.prepare(`
+    const verifiedOrder = await db.prepare(`
       SELECT o.id 
       FROM orders o
       JOIN order_items oi ON oi.order_id = o.id
@@ -118,11 +118,11 @@ export async function POST(req: NextRequest) {
     const isVerified = Boolean(verifiedOrder);
     const reviewId = `rev_${crypto.randomUUID()}`;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO customer_reviews (
         id, product_id, customer_name, city, rating, comment, is_verified_purchase,
         is_approved, customer_id, user_id, status, photos_json, helpful_count, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'APPROVED', ?, 0, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'APPROVED', ?, 0, CURRENT_TIMESTAMP)
     `).run(
       reviewId,
       productId,

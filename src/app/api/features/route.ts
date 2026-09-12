@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const flags = getPublicFeatureFlags();
+    const flags = await getPublicFeatureFlags();
     return NextResponse.json({
       success: true,
       features: flags

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    const result = getLocationsList({
+    const result = await getLocationsList({
       search,
       province,
       district,
@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
       limit
     });
 
-    const provinces = getProvinces();
-    const districts = province ? getDistricts(province) : [];
+    const provinces = await getProvinces();
+    const districts = province ? await getDistricts(province) : [];
 
     return NextResponse.json({
       success: true,
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Province, District, and City are required.' }, { status: 400 });
     }
 
-    const newLoc = createLocation(body);
+    const newLoc = await createLocation(body);
     return NextResponse.json({
       success: true,
       message: `Location ${newLoc.city}, ${newLoc.district} added successfully.`,
@@ -94,7 +94,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Location ID is required.' }, { status: 400 });
     }
 
-    const ok = updateLocation(id, data);
+    const ok = await updateLocation(id, data);
     if (!ok) {
       return NextResponse.json({ error: 'Location not found.' }, { status: 404 });
     }
@@ -123,7 +123,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Location ID is required.' }, { status: 400 });
     }
 
-    const ok = softDeactivateLocation(id);
+    const ok = await softDeactivateLocation(id);
     if (!ok) {
       return NextResponse.json({ error: 'Location not found or already inactive.' }, { status: 404 });
     }

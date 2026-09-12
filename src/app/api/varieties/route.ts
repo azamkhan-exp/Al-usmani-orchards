@@ -7,7 +7,7 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const varieties = db.prepare(`
+    const varieties = await db.prepare(`
       SELECT * FROM mango_varieties
       WHERE is_active = 1
       ORDER BY sort_order ASC, sweetness_brix DESC

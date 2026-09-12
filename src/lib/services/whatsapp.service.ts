@@ -49,8 +49,8 @@ export interface WhatsAppConfig {
  * Retrieve active WhatsApp credentials safely from SQLite store_settings or environment variables.
  * Secrets are never exposed to client-side bundles.
  */
-export function getWhatsAppConfig(): WhatsAppConfig {
-  const storeSettings = getAllStoreSettings();
+export async function getWhatsAppConfig(): Promise<WhatsAppConfig> {
+  const storeSettings = await getAllStoreSettings();
   const notifSettings = storeSettings.notifications || {};
   const waSettings = storeSettings.whatsapp_business || {};
 
@@ -96,7 +96,7 @@ export function sanitizeWhatsAppPhone(phone: string): string {
  */
 export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise<SendWhatsAppResult> {
   // Feature flag check
-  if (!isFeatureEnabled('whatsapp_notifications') && options.eventType !== 'TEST') {
+  if (!(await isFeatureEnabled('whatsapp_notifications')) && options.eventType !== 'TEST') {
     return {
       success: true,
       status: 'DISABLED'
@@ -105,14 +105,14 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
 
   ensureDatabaseReady();
   const db = getDatabase();
-  const config = getWhatsAppConfig();
+  const config = await getWhatsAppConfig();
   const logId = `wlog_${crypto.randomUUID()}`;
   const idempotencyKey = options.idempotencyKey || (options.orderId ? `wa_${options.eventType}_${options.orderId}` : null);
 
   // 1. Idempotency Check: prevent duplicate messages within 10 minutes
   if (idempotencyKey) {
     try {
-      const existing = db
+      const existing = await db
         .prepare(`SELECT id, status, created_at FROM notification_logs WHERE idempotency_key = ? AND created_at > datetime('now', '-10 minutes')`)
         .get(idempotencyKey) as any;
 
@@ -145,7 +145,7 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
 
   if (!isMetaConfigured) {
     try {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?, 'SIMULATED', 'Logged in simulation mode (Meta Cloud API credentials not configured)', 'WHATSAPP', ?, ?, datetime('now'))
       `).run(
@@ -193,7 +193,7 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
 
     if (!response.ok) {
       const errMsg = responseData.error?.message || `Meta API HTTP ${response.status}`;
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
         VALUES (?, ?, ?, ?, ?, 'FAILED', ?, 'WHATSAPP', ?, ?, datetime('now'))
       `).run(
@@ -217,7 +217,7 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
     }
 
     // Successfully dispatched to Meta Cloud API
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
       VALUES (?, ?, ?, ?, ?, 'SENT', NULL, 'WHATSAPP', ?, ?, datetime('now'))
     `).run(
@@ -239,7 +239,7 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
   } catch (err: any) {
     console.error('WhatsApp Cloud API transmission error:', err);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, idempotency_key, payload_json, created_at)
       VALUES (?, ?, ?, ?, ?, 'FAILED', ?, 'WHATSAPP', ?, ?, datetime('now'))
     `).run(
@@ -267,14 +267,14 @@ export async function sendWhatsAppMessage(options: SendWhatsAppOptions): Promise
  */
 export async function sendAdminNewOrderWhatsAppAlert(orderId: string): Promise<SendWhatsAppResult | null> {
   try {
-    const config = getWhatsAppConfig();
+    const config = await getWhatsAppConfig();
     const adminPhone = config.adminNotificationNumber;
     if (!adminPhone) return null;
 
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT 
         o.id, o.order_number, o.total_amount, o.payment_method, o.payment_status,
         o.guest_name, o.guest_phone, o.is_gift, o.gift_recipient,
@@ -286,7 +286,7 @@ export async function sendAdminNewOrderWhatsAppAlert(orderId: string): Promise<S
 
     if (!order) return null;
 
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT variety_name, package_name, quantity, unit_price, subtotal
       FROM order_items
       WHERE order_id = ?
@@ -328,7 +328,7 @@ export async function sendCustomerOrderWhatsAppConfirmation(orderId: string): Pr
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT 
         o.id, o.order_number, o.total_amount, o.payment_method, o.guest_name, o.guest_phone,
         c.full_name as customer_name, c.phone as customer_phone
@@ -344,7 +344,7 @@ export async function sendCustomerOrderWhatsAppConfirmation(orderId: string): Pr
 
     const patronName = order.customer_name || order.guest_name || 'Valued Patron';
 
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT variety_name, package_name, quantity
       FROM order_items
       WHERE order_id = ?
@@ -380,7 +380,7 @@ export async function sendOrderDispatchedWhatsApp(orderId: string): Promise<Send
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT 
         o.id, o.order_number, o.guest_name, o.guest_phone,
         c.full_name as customer_name, c.phone as customer_phone,

@@ -7,7 +7,7 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const order = db.prepare(`
+  const order = (await db.prepare(`
     SELECT o.*, 
            COALESCE(c.full_name, o.guest_name, 'Guest Customer') as customer_name,
            COALESCE(c.phone, o.guest_phone, 'Unspecified') as customer_phone,
@@ -17,18 +17,18 @@ export async function generateOrderSlipPdf(orderId: string): Promise<Uint8Array>
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN couriers cr ON cr.id = o.courier_id
     WHERE o.id = ? OR o.order_number = ?
-  `).get(orderId, orderId) as any;
+  `).get(orderId, orderId)) as any;
 
   if (!order) {
     throw new Error(`Order ${orderId} not found`);
   }
 
-  const items = db.prepare(`
+  const items = (await db.prepare(`
     SELECT oi.*, p.name as product_name
     FROM order_items oi
     LEFT JOIN products p ON p.id = oi.product_id
     WHERE oi.order_id = ?
-  `).all(order.id) as any[];
+  `).all(order.id)) as any[];
 
   let addressObj: any = {};
   try {

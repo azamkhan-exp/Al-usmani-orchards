@@ -7,7 +7,7 @@ import { assertFeatureEnabled } from '@/lib/services/features.service';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const guard = assertFeatureEnabled('buy_again');
+  const guard = await assertFeatureEnabled('buy_again');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -28,13 +28,13 @@ export async function POST(req: NextRequest) {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       return NextResponse.json({ error: 'Customer account not found.' }, { status: 404 });
     }
 
     // IDOR verification: order must belong to this customer
-    const order = db.prepare(`
+    const order = await db.prepare(`
       SELECT id, order_number, status 
       FROM orders 
       WHERE id = ? AND (customer_id = ? OR guest_email = ?)
@@ -45,11 +45,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch items from historical order
-    const historicalItems = db.prepare(`
+    const historicalItems = (await db.prepare(`
       SELECT product_id, package_size_id, quantity, variety_name, package_name
       FROM order_items
       WHERE order_id = ?
-    `).all(orderId) as any[];
+    `).all(orderId)) as any[];
 
     if (historicalItems.length === 0) {
       return NextResponse.json({ error: 'No items found in this order.' }, { status: 400 });
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     const unavailableItems: string[] = [];
 
     for (const it of historicalItems) {
-      const currentPkg = db.prepare(`
+      const currentPkg = await db.prepare(`
         SELECT 
           ps.id as package_size_id,
           ps.name as package_name,

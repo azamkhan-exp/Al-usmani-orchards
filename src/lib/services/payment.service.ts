@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db';
 import { recordAuditLog } from './audit.service';
+import crypto from 'node:crypto';
 
 export interface PaymentMethodConfig {
   config_key: string;
@@ -51,9 +52,9 @@ export interface PaymentTransactionRecord {
 /**
  * Returns all payment methods with configuration key-values.
  */
-export function getAllPaymentMethods(includeSecrets = false): PaymentMethodEntity[] {
+export async function getAllPaymentMethods(includeSecrets = false): Promise<PaymentMethodEntity[]> {
   const db = getDatabase();
-  const methods = db.prepare(`
+  const methods = await db.prepare(`
     SELECT id, code, name, description, is_enabled, type, display_order, created_at, updated_at
     FROM payment_methods
     ORDER BY display_order ASC
@@ -66,7 +67,7 @@ export function getAllPaymentMethods(includeSecrets = false): PaymentMethodEntit
   `);
 
   for (const method of methods) {
-    const rawConfigs = configsStmt.all(method.id) as PaymentMethodConfig[];
+    const rawConfigs = await configsStmt.all(method.id) as PaymentMethodConfig[];
     const configMap: Record<string, string> = {};
 
     for (const cfg of rawConfigs) {
@@ -85,9 +86,9 @@ export function getAllPaymentMethods(includeSecrets = false): PaymentMethodEntit
 /**
  * Returns a single payment method by code.
  */
-export function getPaymentMethodByCode(code: string, includeSecrets = false): PaymentMethodEntity | null {
+export async function getPaymentMethodByCode(code: string, includeSecrets = false): Promise<PaymentMethodEntity | null> {
   const db = getDatabase();
-  const method = db.prepare(`
+  const method = await db.prepare(`
     SELECT id, code, name, description, is_enabled, type, display_order, created_at, updated_at
     FROM payment_methods
     WHERE UPPER(code) = UPPER(?)
@@ -95,7 +96,7 @@ export function getPaymentMethodByCode(code: string, includeSecrets = false): Pa
 
   if (!method) return null;
 
-  const rawConfigs = db.prepare(`
+  const rawConfigs = await db.prepare(`
     SELECT config_key, config_value, is_secret
     FROM payment_method_configs
     WHERE payment_method_id = ?
@@ -117,43 +118,43 @@ export function getPaymentMethodByCode(code: string, includeSecrets = false): Pa
 /**
  * Updates global status and configuration parameters for a payment method.
  */
-export function updatePaymentMethod(
+export async function updatePaymentMethod(
   code: string,
   isEnabled: boolean,
   configs?: Record<string, string>,
   adminUserId?: string
-): boolean {
+): Promise<boolean> {
   const db = getDatabase();
-  const method = db.prepare('SELECT id, is_enabled FROM payment_methods WHERE UPPER(code) = UPPER(?)').get(code) as any;
+  const method = await db.prepare('SELECT id, is_enabled FROM payment_methods WHERE UPPER(code) = UPPER(?)').get(code) as any;
   if (!method) return false;
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE payment_methods
-    SET is_enabled = ?, updated_at = datetime('now')
+    SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(isEnabled ? 1 : 0, method.id);
 
   if (configs) {
     const upsertConfig = db.prepare(`
       INSERT INTO payment_method_configs (id, payment_method_id, config_key, config_value, is_secret, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(payment_method_id, config_key) DO UPDATE SET
         config_value = excluded.config_value,
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
     `);
 
     for (const [key, val] of Object.entries(configs)) {
       // Don't overwrite secret with masked placeholder
       if (val === '••••••••••••') continue;
 
-      const isSecretKey = key.includes('secret') || key.includes('key') && key !== 'publishable_key';
+      const isSecretKey = key.includes('secret') || (key.includes('key') && key !== 'publishable_key');
       const id = `cfg_${code.toLowerCase()}_${key}`;
-      upsertConfig.run(id, method.id, key, val, isSecretKey ? 1 : 0);
+      await upsertConfig.run(id, method.id, key, val, isSecretKey ? 1 : 0);
     }
   }
 
   if (adminUserId) {
-    recordAuditLog({
+    await recordAuditLog({
       userId: adminUserId,
       action: 'PAYMENT_METHOD_UPDATED',
       resourceType: 'PAYMENT',
@@ -168,9 +169,9 @@ export function updatePaymentMethod(
 /**
  * Retrieves per-product payment method overrides.
  */
-export function getProductPaymentOverrides(productId: string): ProductPaymentOverride[] {
+export async function getProductPaymentOverrides(productId: string): Promise<ProductPaymentOverride[]> {
   const db = getDatabase();
-  return db.prepare(`
+  return await db.prepare(`
     SELECT id, product_id, payment_method_code, status
     FROM product_payment_methods
     WHERE product_id = ?
@@ -180,21 +181,21 @@ export function getProductPaymentOverrides(productId: string): ProductPaymentOve
 /**
  * Sets product payment method override (INHERIT, ENABLED, DISABLED).
  */
-export function setProductPaymentOverride(
+export async function setProductPaymentOverride(
   productId: string,
   methodCode: string,
   status: 'INHERIT' | 'ENABLED' | 'DISABLED'
-): void {
+): Promise<void> {
   const db = getDatabase();
   const upperCode = methodCode.toUpperCase();
   const id = `ppm_${productId}_${upperCode}`;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO product_payment_methods (id, product_id, payment_method_code, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT(product_id, payment_method_code) DO UPDATE SET
       status = excluded.status,
-      updated_at = datetime('now')
+      updated_at = CURRENT_TIMESTAMP
   `).run(id, productId, upperCode, status);
 }
 
@@ -206,11 +207,12 @@ export function setProductPaymentOverride(
  *      NONE of the items explicitly set status = 'DISABLED'.
  *    - In other words: If ANY product in the cart disallows the method, it is disallowed for the entire cart.
  */
-export function determineAvailablePaymentMethods(productIds: string[] = []): PaymentMethodEntity[] {
+export async function determineAvailablePaymentMethods(productIds: string[] = []): Promise<PaymentMethodEntity[]> {
   const db = getDatabase();
 
   // 1. Get all globally enabled methods
-  const globalMethods = getAllPaymentMethods(false).filter(m => m.is_enabled === 1);
+  const allMethods = await getAllPaymentMethods(false);
+  const globalMethods = allMethods.filter(m => m.is_enabled === 1);
 
   if (productIds.length === 0) {
     return globalMethods;
@@ -218,7 +220,7 @@ export function determineAvailablePaymentMethods(productIds: string[] = []): Pay
 
   // 2. Fetch overrides for all products in the cart
   const placeholders = productIds.map(() => '?').join(',');
-  const overrides = db.prepare(`
+  const overrides = await db.prepare(`
     SELECT product_id, payment_method_code, status
     FROM product_payment_methods
     WHERE product_id IN (${placeholders})
@@ -252,7 +254,7 @@ export function determineAvailablePaymentMethods(productIds: string[] = []): Pay
 /**
  * Records a payment transaction ledger entry.
  */
-export function recordPaymentTransaction(
+export async function recordPaymentTransaction(
   orderId: string,
   methodCode: string,
   amount: number,
@@ -263,7 +265,7 @@ export function recordPaymentTransaction(
     gateway_response?: any;
     status?: 'PENDING' | 'AWAITING_VERIFICATION' | 'PROCESSING' | 'PAID';
   }
-): string {
+): Promise<string> {
   const db = getDatabase();
   const id = `ptx_${crypto.randomUUID()}`;
   const codeUpper = methodCode.toUpperCase();
@@ -279,12 +281,12 @@ export function recordPaymentTransaction(
     }
   }
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO payment_transactions (
       id, order_id, payment_method_code, amount, currency, status,
       transaction_reference, payment_proof_url, gateway_provider,
       gateway_response_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'PKR', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ) VALUES (?, ?, ?, ?, 'PKR', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     id,
     orderId,
@@ -303,9 +305,9 @@ export function recordPaymentTransaction(
 /**
  * Retrieves all manual transactions awaiting admin verification.
  */
-export function getPendingVerificationPayments(): PaymentTransactionRecord[] {
+export async function getPendingVerificationPayments(): Promise<PaymentTransactionRecord[]> {
   const db = getDatabase();
-  return db.prepare(`
+  return await db.prepare(`
     SELECT pt.*, o.order_number, o.customer_id, COALESCE(c.full_name, o.guest_name) as customer_name, COALESCE(c.phone, o.guest_phone) as customer_phone
     FROM payment_transactions pt
     JOIN orders o ON o.id = pt.order_id
@@ -318,14 +320,14 @@ export function getPendingVerificationPayments(): PaymentTransactionRecord[] {
 /**
  * Admin action: Verifies or rejects a manual payment proof / TID.
  */
-export function verifyManualPayment(
+export async function verifyManualPayment(
   transactionId: string,
   adminUserId: string,
   approved: boolean,
   adminNotes?: string
-): boolean {
+): Promise<boolean> {
   const db = getDatabase();
-  const tx = db.prepare(`
+  const tx = await db.prepare(`
     SELECT pt.*, o.id as order_id, o.order_number
     FROM payment_transactions pt
     JOIN orders o ON o.id = pt.order_id
@@ -338,25 +340,25 @@ export function verifyManualPayment(
   const orderPaymentStatus = approved ? 'PAID' : 'FAILED';
 
   // Update payment transaction
-  db.prepare(`
+  await db.prepare(`
     UPDATE payment_transactions
     SET status = ?,
         verified_by = ?,
-        verified_at = datetime('now'),
+        verified_at = CURRENT_TIMESTAMP,
         admin_notes = ?,
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(newStatus, adminUserId, adminNotes || null, transactionId);
 
   // Update order payment status
-  db.prepare(`
+  await db.prepare(`
     UPDATE orders
     SET payment_status = ?,
-        updated_at = datetime('now')
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(orderPaymentStatus, tx.order_id);
 
-  recordAuditLog({
+  await recordAuditLog({
     userId: adminUserId,
     action: approved ? 'PAYMENT_VERIFIED_SUCCESS' : 'PAYMENT_VERIFIED_REJECTED',
     resourceType: 'PAYMENT_TRANSACTION',

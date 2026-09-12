@@ -15,8 +15,8 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
-    const methods = getAllPaymentMethods(false);
-    const pendingTransactions = getPendingVerificationPayments();
+    const methods = await getAllPaymentMethods(false);
+    const pendingTransactions = await getPendingVerificationPayments();
 
     return NextResponse.json({
       success: true,
@@ -44,12 +44,12 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Payment method code is required.' }, { status: 400 });
     }
 
-    const updated = updatePaymentMethod(code, !!is_enabled, configs, user.id);
+    const updated = await updatePaymentMethod(code, !!is_enabled, configs, user.id);
     if (!updated) {
       return NextResponse.json({ error: 'Payment method not found.' }, { status: 404 });
     }
 
-    const allMethods = getAllPaymentMethods(false);
+    const allMethods = await getAllPaymentMethods(false);
     return NextResponse.json({
       success: true,
       message: `Payment method ${code} updated successfully.`,

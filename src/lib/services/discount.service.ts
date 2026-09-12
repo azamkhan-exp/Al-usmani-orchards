@@ -25,11 +25,11 @@ export interface DiscountEvaluationResult {
   errors: string[];
 }
 
-export function evaluateOrderDiscounts(
+export async function evaluateOrderDiscounts(
   items: CartItemToEvaluate[],
   couponCode?: string | null,
   customerEmail?: string | null
-): DiscountEvaluationResult {
+): Promise<DiscountEvaluationResult> {
   const db = getDatabase();
   const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const totalBoxes = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -42,7 +42,7 @@ export function evaluateOrderDiscounts(
 
   // 1. Check Automatic Tiered Volume Discounts
   // Example rule: 5-9 boxes = 5%, 10-19 boxes = 10%, 20+ boxes = 15%
-  const tieredPromo = db.prepare(`
+  const tieredPromo = await db.prepare(`
     SELECT p.id, p.name 
     FROM promotions p
     WHERE p.discount_type = 'TIERED' AND p.is_active = 1
@@ -50,7 +50,7 @@ export function evaluateOrderDiscounts(
   `).get() as { id: string; name: string } | undefined;
 
   if (tieredPromo) {
-    const rules = db.prepare(`
+    const rules = await db.prepare(`
       SELECT min_units, max_units, discount_percentage
       FROM tiered_discount_rules
       WHERE promotion_id = ?
@@ -59,7 +59,7 @@ export function evaluateOrderDiscounts(
 
     for (const rule of rules) {
       if (totalBoxes >= rule.min_units && (rule.max_units === null || totalBoxes <= rule.max_units)) {
-        appliedTierPercent = rule.discount_percentage;
+        appliedTierPercent = Number(rule.discount_percentage);
         tieredDiscount = Math.round((subtotal * appliedTierPercent) / 100);
         break;
       }
@@ -81,7 +81,7 @@ export function evaluateOrderDiscounts(
   // 2. Validate Coupon Code (if provided)
   if (couponCode && couponCode.trim()) {
     const cleanCode = couponCode.trim().toUpperCase();
-    const promo = db.prepare(`
+    const promo = await db.prepare(`
       SELECT * FROM promotions 
       WHERE UPPER(code) = ? AND is_active = 1
     `).get(cleanCode) as any;
@@ -94,8 +94,8 @@ export function evaluateOrderDiscounts(
         errors.push(`Coupon '${cleanCode}' has expired.`);
       }
       // Check minimum order value
-      else if (subtotal < promo.min_order_value) {
-        errors.push(`Coupon requires a minimum order of ${formatPKR(promo.min_order_value)}.`);
+      else if (subtotal < Number(promo.min_order_value)) {
+        errors.push(`Coupon requires a minimum order of ${formatPKR(Number(promo.min_order_value))}.`);
       }
       // Check total usage limit
       else if (promo.usage_limit && promo.times_used >= promo.usage_limit) {
@@ -104,19 +104,19 @@ export function evaluateOrderDiscounts(
       else {
         // Calculate coupon discount
         if (promo.discount_type === 'PERCENTAGE') {
-          couponDiscount = Math.round((subtotal * promo.discount_value) / 100);
-          if (promo.max_discount && couponDiscount > promo.max_discount) {
-            couponDiscount = promo.max_discount;
+          couponDiscount = Math.round((subtotal * Number(promo.discount_value)) / 100);
+          if (promo.max_discount && couponDiscount > Number(promo.max_discount)) {
+            couponDiscount = Number(promo.max_discount);
           }
         } else if (promo.discount_type === 'FIXED') {
-          couponDiscount = Math.min(promo.discount_value, subtotal);
+          couponDiscount = Math.min(Number(promo.discount_value), subtotal);
         }
 
         couponDetails = {
           code: promo.code,
           name: promo.name,
           discountType: promo.discount_type,
-          value: promo.discount_value
+          value: Number(promo.discount_value)
         };
       }
     }

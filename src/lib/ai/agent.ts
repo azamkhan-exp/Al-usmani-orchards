@@ -93,7 +93,7 @@ export async function runOrchardAgent(
   const q = query.toLowerCase();
 
   // Step B: RAG Search across knowledge base
-  const ragExcerpts: RAGSearchResult[] = searchKnowledgeBase(query, undefined, 3);
+  const ragExcerpts: RAGSearchResult[] = await searchKnowledgeBase(query, undefined, 3);
   const ragContext = ragExcerpts.map((d) => `[${d.category}]: ${d.title} - ${d.content}`).join('\n\n');
 
   // Step C: Intent Recognition & Tool Calling
@@ -106,7 +106,7 @@ export async function runOrchardAgent(
   if (isTrackingIntent) {
     const orderNum = match ? match[0] : '';
     if (orderNum) {
-      const orderData = getCustomerOrderStatus(orderNum, {
+      const orderData = await getCustomerOrderStatus(orderNum, {
         phoneOrEmail: userContext?.phoneOrEmail,
         customerId: userContext?.userId
       });
@@ -162,7 +162,7 @@ export async function runOrchardAgent(
   // 3. Offers & Volume Savings Intent
   const isOfferIntent = q.includes('offer') || q.includes('discount') || q.includes('coupon') || q.includes('promo') || q.includes('deal') || q.includes('sale');
   if (isOfferIntent) {
-    const offers = getActiveOffers();
+    const offers = await getActiveOffers();
     const couponText = offers.coupons.length > 0
       ? offers.coupons.map((c) => `• **${c.name}**: Use code \`${c.code}\` for **${c.discount}** (Min order: ${c.minOrder})`).join('\n')
       : '• Seasonal First Flush Promotion: Special pre-applied crate pricing.';
@@ -190,7 +190,7 @@ export async function runOrchardAgent(
   else if (q.includes('5 kg') || q.includes('5kg') || q.includes('5')) detectedSize = '5';
   else if (q.includes('8 kg') || q.includes('8kg') || q.includes('8')) detectedSize = '8';
 
-  const productsFound = searchProducts({
+  const productsFound = await searchProducts({
     variety: detectedVariety,
     packageSize: detectedSize
   });

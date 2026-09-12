@@ -8,7 +8,7 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const rawCampaigns = db.prepare(`
+    const rawCampaigns = await db.prepare(`
       SELECT 
         c.*,
         p.name as product_name,

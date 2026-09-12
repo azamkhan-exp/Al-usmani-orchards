@@ -5,6 +5,7 @@ import { getCurrentUser, hasPermission } from '@/lib/auth/session';
 import { updateOrderStatus } from '@/lib/services/order.service';
 import { recordAuditLog } from '@/lib/services/audit.service';
 import { archiveOrder, restoreOrder } from '@/lib/services/data-management.service';
+import crypto from 'node:crypto';
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,9 +52,9 @@ export async function GET(req: NextRequest) {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    query += ' ORDER BY datetime(o.created_at) DESC';
+    query += ' ORDER BY o.created_at DESC';
 
-    const orders = db.prepare(query).all(...params) as any[];
+    const orders = await db.prepare(query).all(...params) as any[];
 
     // Fetch order items for each order
     const getItems = db.prepare(`
@@ -66,14 +67,16 @@ export async function GET(req: NextRequest) {
       SELECT status, title, description, created_at
       FROM order_timeline
       WHERE order_id = ?
-      ORDER BY datetime(created_at) ASC
+      ORDER BY created_at ASC
     `);
 
-    const enrichedOrders = orders.map((ord) => ({
-      ...ord,
-      items: getItems.all(ord.id),
-      timeline: getTimeline.all(ord.id)
-    }));
+    const enrichedOrders = await Promise.all(
+      orders.map(async (ord) => ({
+        ...ord,
+        items: await getItems.all(ord.id),
+        timeline: await getTimeline.all(ord.id)
+      }))
+    );
 
     return NextResponse.json({ success: true, orders: enrichedOrders });
   } catch (err: any) {
@@ -98,48 +101,48 @@ export async function PUT(req: NextRequest) {
     }
 
     if (action === 'ARCHIVE') {
-      const success = archiveOrder(orderId, user.id, user.email);
+      const success = await archiveOrder(orderId, user.id, user.email);
       return NextResponse.json({ success, message: success ? 'Order archived.' : 'Failed to archive order.' });
     }
 
     if (action === 'RESTORE') {
-      const success = restoreOrder(orderId, user.id, user.email);
+      const success = await restoreOrder(orderId, user.id, user.email);
       return NextResponse.json({ success, message: success ? 'Order restored.' : 'Failed to restore order.' });
     }
 
     const db = getDatabase();
-    const existingOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+    const existingOrder = await db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
     if (!existingOrder) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
     if (status && status !== existingOrder.status) {
-      updateOrderStatus(orderId, status, notes, user.id);
+      await updateOrderStatus(orderId, status, notes, user.id);
     }
 
     if (paymentStatus && paymentStatus !== existingOrder.payment_status) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE orders 
-        SET payment_status = ?, updated_at = datetime('now')
+        SET payment_status = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(paymentStatus, orderId);
 
       if (paymentStatus === 'PAID') {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO payments (id, order_id, amount, payment_method, status, verified_by, created_at)
-          VALUES (?, ?, ?, ?, 'PAID', ?, datetime('now'))
+          VALUES (?, ?, ?, ?, 'PAID', ?, CURRENT_TIMESTAMP)
         `).run(crypto.randomUUID(), orderId, existingOrder.total_amount, existingOrder.payment_method, user.name);
 
         // If COD, mark receivable settled
-        db.prepare(`
+        await db.prepare(`
           UPDATE accounts_receivable 
-          SET status = 'SETTLED', amount_collected = amount_due, settled_at = datetime('now')
+          SET status = 'SETTLED', amount_collected = amount_due, settled_at = CURRENT_TIMESTAMP
           WHERE order_id = ?
         `).run(orderId);
       }
     }
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ORDER_UPDATED',

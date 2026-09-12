@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       if (!user || user.role === 'CUSTOMER') {
         return NextResponse.json({ error: 'Unauthorized: Admin privileges required.' }, { status: 403 });
       }
-      const response = askAdminAssistant(query);
+      const response = await askAdminAssistant(query);
       return NextResponse.json({ success: true, ...response });
     }
 

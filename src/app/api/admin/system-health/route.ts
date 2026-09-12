@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized access.' }, { status: 403 });
     }
 
-    const health = performSystemHealthCheck();
+    const health = await performSystemHealthCheck();
     return NextResponse.json({ success: true, health });
   } catch (err: any) {
     console.error('System health check error:', err);

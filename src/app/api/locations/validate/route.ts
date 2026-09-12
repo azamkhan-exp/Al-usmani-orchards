@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'City is required for delivery validation.' }, { status: 400 });
     }
 
-    const validation = validateCheckoutLocation(province || '', district || '', city);
+    const validation = await validateCheckoutLocation(province || '', district || '', city);
     return NextResponse.json({
       success: true,
       validation

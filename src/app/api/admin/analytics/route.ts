@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const includeDemo = searchParams.get('includeDemo') === 'true';
     const includeArchived = searchParams.get('includeArchived') === 'true';
 
-    const data = getAnalyticsDashboard({
+    const data = await getAnalyticsDashboard({
       preset,
       startDate,
       endDate,

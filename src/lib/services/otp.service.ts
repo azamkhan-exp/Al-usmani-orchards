@@ -25,19 +25,19 @@ const DEFAULT_SECURITY_SETTINGS: AdminSecuritySettings = {
 };
 
 /**
- * Get current admin security & OTP configuration from SQLite store_settings
+ * Get current admin security & OTP configuration from store_settings
  */
-export function getAdminSecuritySettings(): AdminSecuritySettings {
+export async function getAdminSecuritySettings(): Promise<AdminSecuritySettings> {
   ensureDatabaseReady();
   const db = getDatabase();
-  const row = db.prepare("SELECT value_json FROM store_settings WHERE key = 'security_settings'").get() as { value_json: string } | undefined;
+  const row = await db.prepare("SELECT value_json FROM store_settings WHERE key = 'security_settings'").get() as { value_json: string } | undefined;
 
   if (!row?.value_json) {
     return { ...DEFAULT_SECURITY_SETTINGS };
   }
 
   try {
-    const parsed = JSON.parse(row.value_json);
+    const parsed = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : row.value_json;
     return {
       admin_otp_enabled: parsed.admin_otp_enabled ?? DEFAULT_SECURITY_SETTINGS.admin_otp_enabled,
       otp_provider: parsed.otp_provider ?? DEFAULT_SECURITY_SETTINGS.otp_provider,
@@ -55,21 +55,21 @@ export function getAdminSecuritySettings(): AdminSecuritySettings {
 /**
  * Persist updated admin security settings
  */
-export function updateAdminSecuritySettings(
+export async function updateAdminSecuritySettings(
   settings: Partial<AdminSecuritySettings>,
   updatedByUserId?: string
-): AdminSecuritySettings {
+): Promise<AdminSecuritySettings> {
   ensureDatabaseReady();
-  const current = getAdminSecuritySettings();
+  const current = await getAdminSecuritySettings();
   const updated: AdminSecuritySettings = {
     ...current,
     ...settings
   };
 
   const db = getDatabase();
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO store_settings (id, key, value_json, updated_at)
-    VALUES ('set_sec_settings', 'security_settings', ?, datetime('now'))
+    VALUES ('set_sec_settings', 'security_settings', ?, CURRENT_TIMESTAMP)
     ON CONFLICT(key) DO UPDATE SET
       value_json = excluded.value_json,
       updated_at = excluded.updated_at
@@ -78,7 +78,7 @@ export function updateAdminSecuritySettings(
   // If verified_security_phone changed, update admin users' security_phone
   if (settings.verified_security_phone) {
     try {
-      db.prepare(`
+      await db.prepare(`
         UPDATE users
         SET security_phone = ?, security_phone_verified = 1
         WHERE role IN ('SUPER_ADMIN', 'ADMIN')
@@ -126,10 +126,10 @@ export async function generateAndSendAdminOTP(
 ): Promise<GenerateOTPResult> {
   ensureDatabaseReady();
   const db = getDatabase();
-  const secSettings = getAdminSecuritySettings();
+  const secSettings = await getAdminSecuritySettings();
 
   // Find user
-  const user = db.prepare('SELECT id, name, email, phone, security_phone, role FROM users WHERE id = ?').get(userId) as any;
+  const user = await db.prepare('SELECT id, name, email, phone, security_phone, role FROM users WHERE id = ?').get(userId) as any;
   if (!user) {
     return { success: false, error: 'User not found.' };
   }
@@ -138,9 +138,9 @@ export async function generateAndSendAdminOTP(
   const cooldownSec = secSettings.otp_resend_cooldown_seconds || 60;
 
   // Check cooldown: has an OTP been created for this user/purpose within cooldownSec?
-  const recentOtp = db.prepare(`
+  const recentOtp = await db.prepare(`
     SELECT id, created_at,
-           (strftime('%s', 'now') - strftime('%s', created_at)) as seconds_ago
+           ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)))::int as seconds_ago
     FROM admin_otp_codes
     WHERE user_id = ? AND purpose = ? AND is_used = 0
     ORDER BY created_at DESC
@@ -158,7 +158,7 @@ export async function generateAndSendAdminOTP(
   }
 
   // Invalidate any previous unused OTPs for this user & purpose
-  db.prepare(`
+  await db.prepare(`
     UPDATE admin_otp_codes
     SET is_used = 1
     WHERE user_id = ? AND purpose = ? AND is_used = 0
@@ -174,15 +174,15 @@ export async function generateAndSendAdminOTP(
   const otpId = crypto.randomUUID();
 
   // Insert OTP record
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO admin_otp_codes (
       id, user_id, phone, code_hash, purpose, expires_at,
       attempts, max_attempts, is_used, created_at
     ) VALUES (
-      ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' minutes'),
-      0, ?, 0, datetime('now')
+      ?, ?, ?, ?, ?, NOW() + INTERVAL '${expiryMinutes} minutes',
+      0, ?, 0, CURRENT_TIMESTAMP
     )
-  `).run(otpId, userId, targetPhone, codeHash, purpose, expiryMinutes, secSettings.otp_max_attempts || 5);
+  `).run(otpId, userId, targetPhone, codeHash, purpose, secSettings.otp_max_attempts || 5);
 
   // Dispatch OTP
   const purposeDescriptions: Record<string, string> = {
@@ -199,7 +199,7 @@ export async function generateAndSendAdminOTP(
       const waResult = await sendWhatsAppMessage({
         to: sanitizeWhatsAppPhone(targetPhone),
         message: otpMessage,
-        eventType: 'TEST' // High-priority dispatch
+        eventType: 'TEST'
       });
       if (!waResult.success) {
         console.warn(`[OTP] WhatsApp delivery returned failure: ${waResult.error}. Falling back to server-logged simulated OTP.`);
@@ -236,11 +236,11 @@ export interface VerifyOTPResult {
  * Verify a 6-digit OTP against stored SHA-256 hash.
  * Enforces max attempts, expiration, and immediate single-use invalidation.
  */
-export function verifyAdminOTP(
+export async function verifyAdminOTP(
   userId: string,
   code: string,
   purpose: 'ADMIN_LOGIN' | 'STEP_UP' | 'PASSWORD_RESET' = 'ADMIN_LOGIN'
-): VerifyOTPResult {
+): Promise<VerifyOTPResult> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -250,10 +250,10 @@ export function verifyAdminOTP(
   }
 
   // Find latest active unused OTP for this user and purpose
-  const otpRecord = db.prepare(`
+  const otpRecord = await db.prepare(`
     SELECT id, code_hash, expires_at, attempts, max_attempts,
-           datetime('now') as current_time,
-           (expires_at <= datetime('now')) as is_expired
+           NOW() as current_time,
+           (expires_at <= NOW())::int as is_expired
     FROM admin_otp_codes
     WHERE user_id = ? AND purpose = ? AND is_used = 0
     ORDER BY created_at DESC
@@ -274,7 +274,7 @@ export function verifyAdminOTP(
     };
   }
 
-  if (otpRecord.is_expired === 1) {
+  if (Number(otpRecord.is_expired) === 1) {
     return {
       success: false,
       error: 'Verification code has expired. Please request a new code.'
@@ -290,7 +290,7 @@ export function verifyAdminOTP(
 
   // Increment attempt count
   const newAttempts = otpRecord.attempts + 1;
-  db.prepare('UPDATE admin_otp_codes SET attempts = ? WHERE id = ?').run(newAttempts, otpRecord.id);
+  await db.prepare('UPDATE admin_otp_codes SET attempts = ? WHERE id = ?').run(newAttempts, otpRecord.id);
 
   // Compare SHA-256 hash in constant time
   const incomingHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
@@ -310,7 +310,7 @@ export function verifyAdminOTP(
   }
 
   // Code is valid! Mark as used immediately (single-use)
-  db.prepare('UPDATE admin_otp_codes SET is_used = 1 WHERE id = ?').run(otpRecord.id);
+  await db.prepare('UPDATE admin_otp_codes SET is_used = 1 WHERE id = ?').run(otpRecord.id);
 
   return { success: true };
 }
@@ -319,16 +319,16 @@ export function verifyAdminOTP(
  * Step-Up Authentication: Verify credentials for high-risk operations
  * (e.g. deleting demo data, modifying production protection, exporting financial records).
  */
-export function verifyStepUpAuth(
+export async function verifyStepUpAuth(
   userId: string,
   password?: string,
   otpCode?: string
-): { success: boolean; error?: string } {
+): Promise<{ success: boolean; error?: string }> {
   ensureDatabaseReady();
   const db = getDatabase();
-  const secSettings = getAdminSecuritySettings();
+  const secSettings = await getAdminSecuritySettings();
 
-  const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(userId) as {
+  const user = await db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(userId) as {
     id: string;
     password_hash: string;
   } | undefined;
@@ -352,7 +352,7 @@ export function verifyStepUpAuth(
     if (!otpCode) {
       return { success: false, error: 'A 6-digit security OTP code is required for this high-risk operation.' };
     }
-    const otpResult = verifyAdminOTP(userId, otpCode, 'STEP_UP');
+    const otpResult = await verifyAdminOTP(userId, otpCode, 'STEP_UP');
     if (!otpResult.success) {
       return { success: false, error: otpResult.error || 'Step-up OTP verification failed.' };
     }

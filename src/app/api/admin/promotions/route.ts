@@ -14,13 +14,15 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const promotions = db.prepare('SELECT * FROM promotions ORDER BY created_at DESC').all() as any[];
+    const promotions = (await db.prepare('SELECT * FROM promotions ORDER BY created_at DESC').all()) as any[];
 
     const getRules = db.prepare('SELECT * FROM tiered_discount_rules WHERE promotion_id = ? ORDER BY min_units ASC');
-    const enriched = promotions.map((p) => ({
-      ...p,
-      tieredRules: getRules.all(p.id)
-    }));
+    const enriched = await Promise.all(
+      promotions.map(async (p) => ({
+        ...p,
+        tieredRules: await getRules.all(p.id)
+      }))
+    );
 
     return NextResponse.json({ success: true, promotions: enriched });
   } catch (err: any) {
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
     const id = crypto.randomUUID();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO promotions (
         id, name, code, discount_type, discount_value, min_order_value,
         max_discount, expires_at, is_stackable, is_active
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
       isStackable ? 1 : 0
     );
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'PROMOTION_CREATED',
@@ -96,14 +98,14 @@ export async function PUT(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const existing = db.prepare('SELECT * FROM promotions WHERE id = ?').get(id) as any;
+    const existing = (await db.prepare('SELECT * FROM promotions WHERE id = ?').get(id)) as any;
     if (!existing) {
       return NextResponse.json({ error: 'Promotion not found' }, { status: 404 });
     }
 
     // Check if full edit or just active toggle
     if (name !== undefined || discountType !== undefined) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE promotions
         SET
           name = COALESCE(?, name),
@@ -130,7 +132,7 @@ export async function PUT(req: NextRequest) {
         id
       );
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PROMOTION_UPDATED',
@@ -141,12 +143,12 @@ export async function PUT(req: NextRequest) {
       });
     } else {
       // Simple toggle
-      db.prepare(`UPDATE promotions SET is_active = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      await db.prepare(`UPDATE promotions SET is_active = ?, updated_at = datetime('now') WHERE id = ?`).run(
         isActive ? 1 : 0,
         id
       );
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PROMOTION_TOGGLED',
@@ -187,16 +189,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Promotion ID is required.' }, { status: 400 });
     }
 
-    const result = runTransaction((db) => {
-      const existing = db.prepare('SELECT * FROM promotions WHERE id = ?').get(id) as any;
+    const result = await runTransaction(async (txDb) => {
+      const existing = (await txDb.prepare('SELECT * FROM promotions WHERE id = ?').get(id)) as any;
       if (!existing) {
         return null;
       }
 
       // Delete associated tiered rules if any
-      db.prepare('DELETE FROM tiered_discount_rules WHERE promotion_id = ?').run(id);
+      await txDb.prepare('DELETE FROM tiered_discount_rules WHERE promotion_id = ?').run(id);
       // Delete promotion
-      db.prepare('DELETE FROM promotions WHERE id = ?').run(id);
+      await txDb.prepare('DELETE FROM promotions WHERE id = ?').run(id);
 
       return existing;
     });
@@ -205,7 +207,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Promotion not found' }, { status: 404 });
     }
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'PROMOTION_DELETED',

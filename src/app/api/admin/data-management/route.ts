@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const action = searchParams.get('action') || 'overview';
 
     if (action === 'preview_cleanup') {
-      const preview = previewDemoDataCleanup();
+      const preview = await previewDemoDataCleanup();
       return NextResponse.json({ success: true, preview });
     }
 
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       const { ensureDatabaseReady } = await import('@/lib/db/init');
       ensureDatabaseReady();
       const db = getDatabase();
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT id, order_number, customer_name, total_amount, created_at, status, archived_at
         FROM orders 
         WHERE is_archived = 1 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, orders: rows });
     }
 
-    const overview = getDatabaseOverview();
+    const overview = await getDatabaseOverview();
     return NextResponse.json({ success: true, overview });
   } catch (err: any) {
     console.error('Data management GET error:', err);
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     if (action === 'CLEANUP') {
       const { password, otpCode, confirmationPhrase, categories } = body;
 
-      const cleanupResult = executeDemoDataCleanup({
+      const cleanupResult = await executeDemoDataCleanup({
         userId: user.id,
         userEmail: user.email,
         password,
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       const { password, otpCode, confirmationPhrase } = body;
       const { executeProductionLaunchReset } = await import('@/lib/services/data-management.service');
 
-      const resetResult = executeProductionLaunchReset({
+      const resetResult = await executeProductionLaunchReset({
         userId: user.id,
         userEmail: user.email,
         password,
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'orderId is required.' }, { status: 400 });
       }
       const { archiveOrder } = await import('@/lib/services/data-management.service');
-      const success = archiveOrder(orderId, user.id, user.email);
+      const success = await archiveOrder(orderId, user.id, user.email);
       if (!success) {
         return NextResponse.json({ error: 'Failed to archive order or order not found.' }, { status: 400 });
       }
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'orderId is required.' }, { status: 400 });
       }
       const { restoreOrder } = await import('@/lib/services/data-management.service');
-      const success = restoreOrder(orderId, user.id, user.email);
+      const success = await restoreOrder(orderId, user.id, user.email);
       if (!success) {
         return NextResponse.json({ error: 'Failed to restore order or order not found.' }, { status: 400 });
       }
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     // 5. Toggle Production Protection Lock
     if (action === 'TOGGLE_PROTECTION') {
       const { enabled, maintenance_mode } = body;
-      const updated = setProductionProtectionSettings(
+      const updated = await setProductionProtectionSettings(
         {
           ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),
           ...(maintenance_mode !== undefined ? { maintenance_mode: Boolean(maintenance_mode) } : {})
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
 
     // 6. Retention Cleanup
     if (action === 'RETENTION_CLEANUP') {
-      const retentionResult = executeDataRetentionCleanup();
+      const retentionResult = await executeDataRetentionCleanup();
       return NextResponse.json({
         success: true,
         message: 'Data retention cleanup completed.',

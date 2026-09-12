@@ -9,7 +9,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isFeatureEnabled('product_reviews')) {
+  if (!(await isFeatureEnabled('product_reviews'))) {
     return NextResponse.json({ success: true, reviews: [], aggregate: { averageRating: 5, totalCount: 0 } });
   }
 
@@ -18,7 +18,7 @@ export async function GET(
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const reviews = db.prepare(`
+    const reviews = await db.prepare(`
       SELECT 
         id, customer_name, city, rating, comment, is_verified_purchase,
         photos_json, helpful_count, created_at
@@ -28,7 +28,7 @@ export async function GET(
       LIMIT 50
     `).all(productId);
 
-    const stats = db.prepare(`
+    const stats = await db.prepare(`
       SELECT 
         COUNT(*) as total_reviews,
         AVG(rating) as avg_rating

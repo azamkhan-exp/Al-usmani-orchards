@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const guard = assertFeatureEnabled('loyalty_rewards');
+  const guard = await assertFeatureEnabled('loyalty_rewards');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -22,10 +22,10 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    let customer = db.prepare('SELECT id, total_spent FROM customers WHERE user_id = ?').get(user.id) as any;
+    let customer = await db.prepare('SELECT id, total_spent FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       const customerId = crypto.randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, created_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
       `).run(customerId, user.id, user.name || 'Valued Patron', user.email, (user as any).phone || null);
@@ -33,7 +33,7 @@ export async function GET() {
     }
 
     // Fetch or provision loyalty account
-    let account = db.prepare(`
+    let account = await db.prepare(`
       SELECT id, points_balance, lifetime_points, tier, updated_at
       FROM loyalty_accounts
       WHERE customer_id = ?
@@ -48,13 +48,13 @@ export async function GET() {
       else if (initialPoints >= 5000) tier = 'GOLD';
       else if (initialPoints >= 1000) tier = 'SILVER';
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO loyalty_accounts (id, customer_id, points_balance, lifetime_points, tier, updated_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
       `).run(accountId, customer.id, initialPoints, initialPoints, tier);
 
       if (initialPoints > 0) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO loyalty_ledger (id, customer_id, order_id, points, type, description, created_at)
           VALUES (?, ?, NULL, ?, 'EARNED', 'Historic harvest purchases loyalty allocation', datetime('now'))
         `).run(`led_${crypto.randomUUID()}`, customer.id, initialPoints);
@@ -69,7 +69,7 @@ export async function GET() {
     }
 
     // Ledger transactions
-    const ledger = db.prepare(`
+    const ledger = await db.prepare(`
       SELECT id, points, type, description, order_id, created_at
       FROM loyalty_ledger
       WHERE customer_id = ?

@@ -42,14 +42,14 @@ function validateMagicBytes(buffer: Buffer): { valid: boolean; ext: string } {
   return { valid: false, ext: '' };
 }
 
-function syncProductGalleryJson(productId: string) {
+async function syncProductGalleryJson(productId: string) {
   const db = getDatabase();
-  const images = db
+  const images = (await db
     .prepare(`SELECT image_url FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, sort_order ASC`)
-    .all(productId) as Array<{ image_url: string }>;
+    .all(productId)) as Array<{ image_url: string }>;
 
   const galleryUrls = images.map((i) => i.image_url);
-  db.prepare(`UPDATE products SET gallery_json = ?, updated_at = datetime('now') WHERE id = ?`).run(
+  await db.prepare(`UPDATE products SET gallery_json = ?, updated_at = datetime('now') WHERE id = ?`).run(
     JSON.stringify(galleryUrls),
     productId
   );
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const images = db
+    const images = await db
       .prepare(
         `SELECT * FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, sort_order ASC, created_at ASC`
       )
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const product = db.prepare('SELECT id, name FROM products WHERE id = ?').get(productId) as any;
+    const product = (await db.prepare('SELECT id, name FROM products WHERE id = ?').get(productId)) as any;
     if (!product) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
@@ -141,21 +141,22 @@ export async function POST(req: NextRequest) {
 
     await fs.writeFile(physicalPath, buffer);
 
-    const existingImages = db
+    const existingImages = (await db
       .prepare('SELECT count(*) as count FROM product_images WHERE product_id = ?')
-      .get(productId) as { count: number };
+      .get(productId)) as { count: number };
 
-    const shouldBePrimary = setAsPrimaryParam || existingImages.count === 0;
+    const count = Number(existingImages?.count || 0);
+    const shouldBePrimary = setAsPrimaryParam || count === 0;
     const imageId = `pimg_${crypto.randomUUID()}`;
 
-    runTransaction(() => {
+    await runTransaction(async (txDb) => {
       if (shouldBePrimary) {
-        db.prepare('UPDATE product_images SET is_primary = 0 WHERE product_id = ?').run(productId);
+        await txDb.prepare('UPDATE product_images SET is_primary = 0 WHERE product_id = ?').run(productId);
       }
 
-      const nextSortOrder = existingImages.count;
+      const nextSortOrder = count;
 
-      db.prepare(`
+      await txDb.prepare(`
         INSERT INTO product_images (id, product_id, image_url, storage_path, alt_text, sort_order, is_primary, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `).run(
@@ -169,16 +170,16 @@ export async function POST(req: NextRequest) {
       );
 
       if (shouldBePrimary) {
-        db.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
           publicUrl,
           productId
         );
       }
 
-      syncProductGalleryJson(productId);
+      await syncProductGalleryJson(productId);
     });
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'UPLOAD_PRODUCT_IMAGE',
@@ -187,7 +188,7 @@ export async function POST(req: NextRequest) {
       newState: { productId, publicUrl, isPrimary: shouldBePrimary }
     });
 
-    const createdImage = db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId);
+    const createdImage = await db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId);
     return NextResponse.json({ success: true, image: createdImage });
   } catch (err: any) {
     console.error('Error uploading product image:', err);
@@ -213,21 +214,21 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'imageId and productId are required' }, { status: 400 });
       }
 
-      const img = db
+      const img = (await db
         .prepare('SELECT * FROM product_images WHERE id = ? AND product_id = ?')
-        .get(imageId, productId) as any;
+        .get(imageId, productId)) as any;
       if (!img) {
         return NextResponse.json({ error: 'Image not found for this product' }, { status: 404 });
       }
 
-      runTransaction(() => {
-        db.prepare('UPDATE product_images SET is_primary = 0 WHERE product_id = ?').run(productId);
-        db.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(imageId);
-        db.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+      await runTransaction(async (txDb) => {
+        await txDb.prepare('UPDATE product_images SET is_primary = 0 WHERE product_id = ?').run(productId);
+        await txDb.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(imageId);
+        await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
           img.image_url,
           productId
         );
-        syncProductGalleryJson(productId);
+        await syncProductGalleryJson(productId);
       });
 
       return NextResponse.json({ success: true, primaryImage: img.image_url });
@@ -238,16 +239,16 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'imageId is required' }, { status: 400 });
       }
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE product_images 
         SET alt_text = COALESCE(?, alt_text),
             sort_order = COALESCE(?, sort_order)
         WHERE id = ?
       `).run(altText !== undefined ? altText : null, sortOrder !== undefined ? Number(sortOrder) : null, imageId);
 
-      const updated = db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId) as any;
+      const updated = (await db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId)) as any;
       if (updated) {
-        syncProductGalleryJson(updated.product_id);
+        await syncProductGalleryJson(updated.product_id);
       }
 
       return NextResponse.json({ success: true, image: updated });
@@ -258,12 +259,12 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'items array and productId are required' }, { status: 400 });
       }
 
-      runTransaction(() => {
-        const updateStmt = db.prepare('UPDATE product_images SET sort_order = ? WHERE id = ? AND product_id = ?');
+      await runTransaction(async (txDb) => {
+        const updateStmt = txDb.prepare('UPDATE product_images SET sort_order = ? WHERE id = ? AND product_id = ?');
         for (const item of items) {
-          updateStmt.run(item.sort_order, item.id, productId);
+          await updateStmt.run(item.sort_order, item.id, productId);
         }
-        syncProductGalleryJson(productId);
+        await syncProductGalleryJson(productId);
       });
 
       return NextResponse.json({ success: true });
@@ -293,7 +294,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const image = db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId) as any;
+    const image = (await db.prepare('SELECT * FROM product_images WHERE id = ?').get(imageId)) as any;
     if (!image) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
@@ -317,31 +318,31 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    runTransaction(() => {
-      db.prepare('DELETE FROM product_images WHERE id = ?').run(imageId);
+    await runTransaction(async (txDb) => {
+      await txDb.prepare('DELETE FROM product_images WHERE id = ?').run(imageId);
 
       if (wasPrimary) {
-        const nextPrimary = db
+        const nextPrimary = (await txDb
           .prepare('SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, created_at ASC LIMIT 1')
-          .get(productId) as any;
+          .get(productId)) as any;
 
         if (nextPrimary) {
-          db.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(nextPrimary.id);
-          db.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
+          await txDb.prepare('UPDATE product_images SET is_primary = 1 WHERE id = ?').run(nextPrimary.id);
+          await txDb.prepare(`UPDATE products SET primary_image = ?, updated_at = datetime('now') WHERE id = ?`).run(
             nextPrimary.image_url,
             productId
           );
         } else {
-          db.prepare(
+          await txDb.prepare(
             `UPDATE products SET primary_image = '/images/placeholder-mango.svg', updated_at = datetime('now') WHERE id = ?`
           ).run(productId);
         }
       }
 
-      syncProductGalleryJson(productId);
+      await syncProductGalleryJson(productId);
     });
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'DELETE_PRODUCT_IMAGE',

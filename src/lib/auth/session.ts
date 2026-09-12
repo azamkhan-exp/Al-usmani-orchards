@@ -2,6 +2,7 @@ import { getDatabase } from '../db';
 import { generateSessionToken, hashToken } from './crypto';
 import { signSessionToken, verifySignedSessionToken } from './tokens';
 import { cookies } from 'next/headers';
+import crypto from 'node:crypto';
 
 export type UserRole = 
   | 'SUPER_ADMIN'
@@ -68,7 +69,7 @@ export function isOwnerEmail(email: string): boolean {
 
 export async function createSession(userId: string, ipAddress = '', userAgent = ''): Promise<string> {
   const db = getDatabase();
-  const user = db.prepare('SELECT id, role, email FROM users WHERE id = ?').get(userId) as any;
+  const user = await db.prepare('SELECT id, role, email FROM users WHERE id = ?').get(userId) as any;
   const role: UserRole = user?.role || 'CUSTOMER';
 
   const { token, tokenHash } = generateSessionToken();
@@ -80,10 +81,10 @@ export async function createSession(userId: string, ipAddress = '', userAgent = 
     INSERT INTO user_sessions (id, user_id, token_hash, ip_address, user_agent, expires_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(sessionId, userId, tokenHash, ipAddress, userAgent, expiresAt);
+  await stmt.run(sessionId, userId, tokenHash, ipAddress, userAgent, expiresAt);
 
   // Update last_login_at on user
-  db.prepare(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`).run(userId);
+  await db.prepare(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`).run(userId);
 
   // Cryptographically sign the session cookie for tamper-proof Edge inspection
   const signedCookieValue = await signSessionToken(token, {
@@ -123,7 +124,7 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
       WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.status = 'ACTIVE'
     `);
 
-    const user = stmt.get(tokenHash) as AuthenticatedUser | undefined;
+    const user = await stmt.get(tokenHash) as AuthenticatedUser | undefined;
     return user || null;
   } catch {
     return null;
@@ -156,7 +157,7 @@ export async function getUserActiveSessions(userId: string): Promise<UserSession
   const db = getDatabase();
   const currentTokenHash = await getCurrentSessionTokenHash();
 
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT id, ip_address, user_agent, created_at, expires_at, token_hash
     FROM user_sessions
     WHERE user_id = ? AND expires_at > datetime('now')
@@ -182,7 +183,7 @@ export async function getUserActiveSessions(userId: string): Promise<UserSession
 
 export async function revokeSession(sessionId: string, userId: string): Promise<boolean> {
   const db = getDatabase();
-  const res = db.prepare('DELETE FROM user_sessions WHERE id = ? AND user_id = ?').run(sessionId, userId);
+  const res = await db.prepare('DELETE FROM user_sessions WHERE id = ? AND user_id = ?').run(sessionId, userId);
   return res.changes > 0;
 }
 
@@ -191,13 +192,13 @@ export async function revokeOtherSessions(userId: string): Promise<number> {
   const currentTokenHash = await getCurrentSessionTokenHash();
   if (!currentTokenHash) return 0;
 
-  const res = db.prepare('DELETE FROM user_sessions WHERE user_id = ? AND token_hash != ?').run(userId, currentTokenHash);
+  const res = await db.prepare('DELETE FROM user_sessions WHERE user_id = ? AND token_hash != ?').run(userId, currentTokenHash);
   return res.changes;
 }
 
 export async function revokeAllUserSessions(userId: string): Promise<number> {
   const db = getDatabase();
-  const res = db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(userId);
+  const res = await db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(userId);
   return res.changes;
 }
 
@@ -210,7 +211,7 @@ export async function destroySession(): Promise<void> {
       const tokenHash = hashToken(rawToken);
       const db = getDatabase();
       const stmt = db.prepare('DELETE FROM user_sessions WHERE token_hash = ?');
-      stmt.run(tokenHash);
+      await stmt.run(tokenHash);
     }
     cookieStore.delete(SESSION_COOKIE_NAME);
     cookieStore.delete('shahi_session');
@@ -291,4 +292,3 @@ export async function requireRole(allowedRoles: UserRole[]): Promise<AuthGuardRe
   }
   return { authorized: true, user, status: 200 };
 }
-

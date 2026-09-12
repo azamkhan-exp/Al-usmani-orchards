@@ -12,9 +12,9 @@ export interface CreateShipmentParams {
   createdBy?: string;
 }
 
-export function calculateShippingFee(totalWeightKg: number, destinationCity: string, subtotal?: number): number {
+export async function calculateShippingFee(totalWeightKg: number, destinationCity: string, subtotal?: number): Promise<number> {
   const city = (destinationCity || 'Lahore').toLowerCase().trim();
-  const shippingSettings = getShippingSettings();
+  const shippingSettings = await getShippingSettings();
 
   // 1. Check for Free Shipping threshold
   if (
@@ -28,7 +28,7 @@ export function calculateShippingFee(totalWeightKg: number, destinationCity: str
   // 2. Query location-specific rate from pakistan_locations if configured
   try {
     const db = getDatabase();
-    const loc = db.prepare(`
+    const loc = await db.prepare(`
       SELECT delivery_fee 
       FROM pakistan_locations 
       WHERE is_active = 1 AND LOWER(city) = ?
@@ -36,10 +36,10 @@ export function calculateShippingFee(totalWeightKg: number, destinationCity: str
       LIMIT 1
     `).get(city) as { delivery_fee: number } | undefined;
 
-    if (loc && typeof loc.delivery_fee === 'number') {
+    if (loc && typeof loc.delivery_fee !== 'undefined') {
       const additionalWeight = Math.max(0, totalWeightKg - 5);
       const weightCharge = Math.ceil(additionalWeight / 5) * 150;
-      return loc.delivery_fee + weightCharge;
+      return Number(loc.delivery_fee) + weightCharge;
     }
   } catch (err) {
     // Fall back to matrix if table not ready
@@ -66,17 +66,17 @@ export function calculateShippingFee(totalWeightKg: number, destinationCity: str
   return baseRate + weightCharge;
 }
 
-export function assignCourierAndDispatch(params: CreateShipmentParams): {
+export async function assignCourierAndDispatch(params: CreateShipmentParams): Promise<{
   shipmentId: string;
   trackingNumber: string;
-} {
-  const result = runTransaction((db) => {
-    const courier = db.prepare('SELECT id, name, code FROM couriers WHERE id = ?').get(params.courierId) as any;
+}> {
+  const result = await runTransaction(async (db) => {
+    const courier = await db.prepare('SELECT id, name, code, tracking_url_template FROM couriers WHERE id = ?').get(params.courierId) as any;
     if (!courier) {
       throw new Error(`Courier with ID ${params.courierId} not found`);
     }
 
-    const order = db.prepare('SELECT id, order_number, status, shipping_address_json FROM orders WHERE id = ?').get(params.orderId) as any;
+    const order = await db.prepare('SELECT id, order_number, status, shipping_address_json FROM orders WHERE id = ?').get(params.orderId) as any;
     if (!order) {
       throw new Error(`Order with ID ${params.orderId} not found`);
     }
@@ -87,7 +87,7 @@ export function assignCourierAndDispatch(params: CreateShipmentParams): {
     }
 
     // Idempotency: Prevent duplicate dispatch bookings for the same order
-    const existingShipment = db.prepare('SELECT id, tracking_number FROM shipments WHERE order_id = ?').get(params.orderId) as any;
+    const existingShipment = await db.prepare('SELECT id, tracking_number FROM shipments WHERE order_id = ?').get(params.orderId) as any;
     if (existingShipment) {
       throw new Error(`Order ${order.order_number || params.orderId} is already dispatched with tracking # ${existingShipment.tracking_number}`);
     }
@@ -101,7 +101,7 @@ export function assignCourierAndDispatch(params: CreateShipmentParams): {
     const estimatedDelivery = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     // Explicit 9 columns and 9 parameter placeholders
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO shipments (
         id, order_id, courier_id, tracking_number, shipment_status,
         shipping_cost, cod_amount, pickup_date, estimated_delivery_date
@@ -119,26 +119,26 @@ export function assignCourierAndDispatch(params: CreateShipmentParams): {
     );
 
     // Update order status to READY_TO_SHIP or SHIPPED
-    db.prepare(`
+    await db.prepare(`
       UPDATE orders 
-      SET status = 'SHIPPED', courier_id = ?, tracking_number = ?, updated_at = datetime('now')
+      SET status = 'SHIPPED', courier_id = ?, tracking_number = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(params.courierId, trackingNumber, params.orderId);
 
     // Create Initial Tracking Event
     const eventId = crypto.randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO shipment_tracking_events (
         id, shipment_id, event_time, status, location, description
-      ) VALUES (?, ?, datetime('now'), 'BOOKED', 'Multan Hub', 'Consignment booked and scheduled for cold-chain pickup')
+      ) VALUES (?, ?, CURRENT_TIMESTAMP, 'BOOKED', 'Multan Hub', 'Consignment booked and scheduled for cold-chain pickup')
     `).run(eventId, shipmentId);
 
     // Record in order timeline
     const timelineId = crypto.randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO order_timeline (
         id, order_id, status, title, description, created_at
-      ) VALUES (?, ?, 'SHIPPED', 'Dispatched with Courier', ?, datetime('now'))
+      ) VALUES (?, ?, 'SHIPPED', 'Dispatched with Courier', ?, CURRENT_TIMESTAMP)
     `).run(
       timelineId,
       params.orderId,
@@ -162,28 +162,28 @@ export function assignCourierAndDispatch(params: CreateShipmentParams): {
   };
 }
 
-export function addTrackingEvent(params: {
+export async function addTrackingEvent(params: {
   shipmentId: string;
   status: 'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'RETURNED_TO_ORIGIN';
   location: string;
   description: string;
-}): void {
-  runTransaction((db) => {
-    const shipment = db.prepare('SELECT id, order_id FROM shipments WHERE id = ?').get(params.shipmentId) as any;
+}): Promise<void> {
+  await runTransaction(async (db) => {
+    const shipment = await db.prepare('SELECT id, order_id FROM shipments WHERE id = ?').get(params.shipmentId) as any;
     if (!shipment) {
       throw new Error(`Shipment ${params.shipmentId} not found`);
     }
 
     const eventId = crypto.randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO shipment_tracking_events (
         id, shipment_id, event_time, status, location, description
-      ) VALUES (?, ?, datetime('now'), ?, ?, ?)
+      ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
     `).run(eventId, params.shipmentId, params.status, params.location, params.description);
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE shipments 
-      SET shipment_status = ?, actual_delivery_date = CASE WHEN ? = 'DELIVERED' THEN datetime('now') ELSE actual_delivery_date END
+      SET shipment_status = ?, actual_delivery_date = CASE WHEN ? = 'DELIVERED' THEN CURRENT_TIMESTAMP ELSE actual_delivery_date END
       WHERE id = ?
     `).run(params.status, params.status, params.shipmentId);
 
@@ -194,12 +194,12 @@ export function addTrackingEvent(params: {
     else if (params.status === 'DELIVERED') newOrderStatus = 'DELIVERED';
 
     if (newOrderStatus) {
-      db.prepare(`UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`)
+      await db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
         .run(newOrderStatus, shipment.order_id);
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO order_timeline (id, order_id, status, title, description, created_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `).run(
         crypto.randomUUID(),
         shipment.order_id,

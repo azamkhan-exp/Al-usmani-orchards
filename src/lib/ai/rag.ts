@@ -24,15 +24,15 @@ export interface RAGSearchResult {
 /**
  * Searches the AI knowledge base documents with keyword and semantic tag scoring.
  */
-export function searchKnowledgeBase(query: string, category?: string, limit = 4): RAGSearchResult[] {
+export async function searchKnowledgeBase(query: string, category?: string, limit = 4): Promise<RAGSearchResult[]> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const rawDocs = db.prepare(`
+  const rawDocs = (await db.prepare(`
     SELECT id, category, title, content, tags_json
     FROM ai_knowledge_documents
     WHERE is_active = 1 ${category ? 'AND category = ?' : ''}
-  `).all(...(category ? [category] : [])) as any[];
+  `).all(...(category ? [category] : []))) as any[];
 
   if (!rawDocs || rawDocs.length === 0) return [];
 
@@ -96,7 +96,7 @@ export function searchKnowledgeBase(query: string, category?: string, limit = 4)
 /**
  * Returns all knowledge documents for admin management.
  */
-export function getAllKnowledgeDocuments(filters?: { category?: string; search?: string }): KnowledgeDocument[] {
+export async function getAllKnowledgeDocuments(filters?: { category?: string; search?: string }): Promise<KnowledgeDocument[]> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -116,7 +116,7 @@ export function getAllKnowledgeDocuments(filters?: { category?: string; search?:
 
   sql += ` ORDER BY updated_at DESC`;
 
-  const rows = db.prepare(sql).all(...params) as any[];
+  const rows = (await db.prepare(sql).all(...params)) as any[];
 
   return rows.map((r) => ({
     id: r.id,
@@ -133,11 +133,11 @@ export function getAllKnowledgeDocuments(filters?: { category?: string; search?:
 /**
  * Get single knowledge document by ID.
  */
-export function getKnowledgeDocumentById(id: string): KnowledgeDocument | null {
+export async function getKnowledgeDocumentById(id: string): Promise<KnowledgeDocument | null> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const r = db.prepare(`SELECT * FROM ai_knowledge_documents WHERE id = ?`).get(id) as any;
+  const r = (await db.prepare(`SELECT * FROM ai_knowledge_documents WHERE id = ?`).get(id)) as any;
   if (!r) return null;
 
   return {
@@ -155,30 +155,31 @@ export function getKnowledgeDocumentById(id: string): KnowledgeDocument | null {
 /**
  * Create a new knowledge document.
  */
-export function createKnowledgeDocument(doc: {
+export async function createKnowledgeDocument(doc: {
   category: string;
   title: string;
   content: string;
   tags?: string[];
-}): KnowledgeDocument {
+}): Promise<KnowledgeDocument> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   const id = `doc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const tagsJson = JSON.stringify(doc.tags || []);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO ai_knowledge_documents (id, category, title, content, tags_json, is_active, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
   `).run(id, doc.category, doc.title.trim(), doc.content.trim(), tagsJson);
 
-  return getKnowledgeDocumentById(id)!;
+  const created = await getKnowledgeDocumentById(id);
+  return created!;
 }
 
 /**
  * Update an existing knowledge document.
  */
-export function updateKnowledgeDocument(
+export async function updateKnowledgeDocument(
   id: string,
   updates: {
     category?: string;
@@ -187,11 +188,11 @@ export function updateKnowledgeDocument(
     tags?: string[];
     is_active?: boolean;
   }
-): KnowledgeDocument | null {
+): Promise<KnowledgeDocument | null> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const existing = getKnowledgeDocumentById(id);
+  const existing = await getKnowledgeDocumentById(id);
   if (!existing) return null;
 
   const category = updates.category !== undefined ? updates.category : existing.category;
@@ -200,22 +201,22 @@ export function updateKnowledgeDocument(
   const tagsJson = updates.tags !== undefined ? JSON.stringify(updates.tags) : JSON.stringify(existing.tags);
   const isActive = updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : (existing.is_active ? 1 : 0);
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE ai_knowledge_documents
     SET category = ?, title = ?, content = ?, tags_json = ?, is_active = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(category, title, content, tagsJson, isActive, id);
 
-  return getKnowledgeDocumentById(id);
+  return await getKnowledgeDocumentById(id);
 }
 
 /**
  * Delete a knowledge document.
  */
-export function deleteKnowledgeDocument(id: string): boolean {
+export async function deleteKnowledgeDocument(id: string): Promise<boolean> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const result = db.prepare(`DELETE FROM ai_knowledge_documents WHERE id = ?`).run(id);
+  const result = await db.prepare(`DELETE FROM ai_knowledge_documents WHERE id = ?`).run(id);
   return result.changes > 0;
 }

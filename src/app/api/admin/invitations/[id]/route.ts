@@ -13,7 +13,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = cancelAdminInvitation({
+    const result = await cancelAdminInvitation({
       invitationId: id,
       actorUserId: auth.user.id,
       actorUserEmail: auth.user.email

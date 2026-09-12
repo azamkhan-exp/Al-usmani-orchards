@@ -8,7 +8,7 @@ export async function GET() {
   try {
     ensureDatabaseReady();
     const db = getDatabase();
-    const rows = db.prepare('SELECT section_key, content_json, updated_at FROM website_content').all() as any[];
+    const rows = (await db.prepare('SELECT section_key, content_json, updated_at FROM website_content').all()) as any[];
 
     const contentMap: Record<string, any> = {};
     for (const r of rows) {
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
     const contentStr = JSON.stringify(content);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO website_content (id, section_key, content_json, updated_at)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(section_key) DO UPDATE SET
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         updated_at = datetime('now')
     `).run(`cms-${sectionKey}`, sectionKey, contentStr);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'CMS_CONTENT_UPDATED',

@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const productIdsParam = searchParams.get('product_ids');
     const productIds = productIdsParam ? productIdsParam.split(',').filter(Boolean) : [];
 
-    const availableMethods = determineAvailablePaymentMethods(productIds);
+    const availableMethods = await determineAvailablePaymentMethods(productIds);
     return NextResponse.json({
       success: true,
       methods: availableMethods
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const productIds = Array.isArray(body.product_ids) ? body.product_ids : [];
 
-    const availableMethods = determineAvailablePaymentMethods(productIds);
+    const availableMethods = await determineAvailablePaymentMethods(productIds);
     return NextResponse.json({
       success: true,
       methods: availableMethods

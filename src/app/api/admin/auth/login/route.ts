@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
     const cleanIdentifier = identifier.trim().toLowerCase();
 
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, username, name, email, password_hash, role, status, mfa_enabled, mfa_secret
       FROM users
       WHERE LOWER(email) = ? OR LOWER(username) = ?
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Admin Security OTP Challenge (WhatsApp / SMS)
-    const secSettings = getAdminSecuritySettings();
+    const secSettings = await getAdminSecuritySettings();
     if (secSettings.admin_otp_enabled) {
       const otpResult = await generateAndSendAdminOTP(user.id, 'ADMIN_LOGIN');
       const challengeToken = await signMfaChallengeToken(user.id, 300);
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     await createSession(user.id, ip, userAgent);
     resetRateLimit(`admin_login:${ip}`);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ADMIN_LOGIN_SUCCESS',

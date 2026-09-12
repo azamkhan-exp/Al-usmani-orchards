@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
-    const settings = getAdminSecuritySettings();
+    const settings = await getAdminSecuritySettings();
     return NextResponse.json({
       success: true,
       settings: {
@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest) {
 
     // If changing security phone number and step_up verification code is provided, verify it first!
     if (verified_security_phone && otp_code) {
-      const verifyResult = verifyAdminOTP(user.id, otp_code, 'STEP_UP');
+      const verifyResult = await verifyAdminOTP(user.id, otp_code, 'STEP_UP');
       if (!verifyResult.success) {
         return NextResponse.json({
           error: verifyResult.error || 'Invalid or expired verification code for phone update.'
@@ -55,15 +55,15 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    const previous = getAdminSecuritySettings();
-    const updated = updateAdminSecuritySettings({
+    const previous = await getAdminSecuritySettings();
+    const updated = await updateAdminSecuritySettings({
       ...(admin_otp_enabled !== undefined ? { admin_otp_enabled: Boolean(admin_otp_enabled) } : {}),
       ...(otp_provider ? { otp_provider } : {}),
       ...(verified_security_phone ? { verified_security_phone: verified_security_phone.trim() } : {}),
       ...(step_up_mfa_required !== undefined ? { step_up_mfa_required: Boolean(step_up_mfa_required) } : {})
     }, user.id);
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ADMIN_OTP_SETTINGS_UPDATED',
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: result.error || 'Failed to dispatch verification code.' }, { status: 500 });
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'ADMIN_OTP_DISPATCHED',
@@ -150,14 +150,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Please enter a valid 6-digit numeric verification code.' }, { status: 400 });
       }
 
-      const verifyResult = verifyAdminOTP(user.id, code, purpose);
+      const verifyResult = await verifyAdminOTP(user.id, code, purpose);
 
       if (!verifyResult.success) {
         const isMaxAttempts = verifyResult.error?.includes('Maximum');
         const isExpired = verifyResult.error?.includes('expired');
         const isUsed = verifyResult.error?.includes('already been used') || verifyResult.error?.includes('No active');
 
-        recordAuditLog({
+        await recordAuditLog({
           userId: user.id,
           userEmail: user.email,
           action: 'ADMIN_OTP_VERIFICATION_FAILED',
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
         }, { status });
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'ADMIN_OTP_VERIFICATION_SUCCESS',

@@ -23,7 +23,7 @@ export async function POST(
       return NextResponse.json({ error: 'Courier selection is required.' }, { status: 400 });
     }
 
-    const result = assignCourierAndDispatch({
+    const result = await assignCourierAndDispatch({
       orderId,
       courierId,
       shippingCost: shippingCost || 350,
@@ -31,7 +31,7 @@ export async function POST(
       createdBy: user.name
     });
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'ORDER_DISPATCHED',

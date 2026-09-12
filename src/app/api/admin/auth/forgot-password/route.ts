@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
       const db = getDatabase();
       const cleanIdentifier = identifier.trim().toLowerCase();
-      const user = db.prepare(`
+      const user = await db.prepare(`
         SELECT id, username, email, role, status
         FROM users
         WHERE LOWER(email) = ? OR LOWER(username) = ?
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const verifyResult = verifyAdminOTP(userId, code, 'PASSWORD_RESET');
+      const verifyResult = await verifyAdminOTP(userId, code, 'PASSWORD_RESET');
       if (!verifyResult.success) {
         return NextResponse.json(
           { error: verifyResult.error || 'Invalid verification code.' },
@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
       }
 
       const db = getDatabase();
-      const user = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(userId) as any;
+      const user = await db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(userId) as any;
       if (!user) {
         return NextResponse.json({ error: 'User not found.' }, { status: 404 });
       }
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
       const newPasswordHash = hashPassword(new_password);
 
       // Update password
-      db.prepare(`
+      await db.prepare(`
         UPDATE users 
         SET password_hash = ?, updated_at = datetime('now')
         WHERE id = ?
@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
       // Invalidate all existing sessions for security
       await revokeAllUserSessions(userId);
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'ADMIN_PASSWORD_RESET_SUCCESS',

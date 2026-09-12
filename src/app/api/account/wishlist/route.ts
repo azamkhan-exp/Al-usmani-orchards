@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const guard = assertFeatureEnabled('wishlist');
+  const guard = await assertFeatureEnabled('wishlist');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -22,12 +22,12 @@ export async function GET() {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       return NextResponse.json({ success: true, items: [] });
     }
 
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT 
         w.id as wishlist_id,
         w.created_at as saved_at,
@@ -46,13 +46,13 @@ export async function GET() {
         COALESCE(inv.available_stock, 0) as available_stock,
         (COALESCE(inv.available_stock, 0) > 0) as in_stock
       FROM wishlists w
-      JOIN products p ON p.id = w.product_id
+      JOIN products p ON p.id = wishlists_p(p)
       JOIN mango_varieties v ON v.id = p.variety_id
       LEFT JOIN package_sizes ps ON ps.id = w.package_size_id
       LEFT JOIN inventory inv ON inv.package_size_id = ps.id
       WHERE w.customer_id = ?
       ORDER BY w.created_at DESC
-    `).all(customer.id);
+    `.replace('wishlists_p(p)', 'w.product_id')).all(customer.id);
 
     return NextResponse.json({ success: true, items });
   } catch (err: any) {
@@ -62,7 +62,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = assertFeatureEnabled('wishlist');
+  const guard = await assertFeatureEnabled('wishlist');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -84,10 +84,10 @@ export async function POST(req: NextRequest) {
     const db = getDatabase();
 
     // Ensure customer record exists
-    let customer = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+    let customer = await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       const customerId = crypto.randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, created_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
       `).run(customerId, user.id, user.name || 'Valued Patron', user.email, (user as any).phone || null);
@@ -97,13 +97,13 @@ export async function POST(req: NextRequest) {
     // Resolve package size if not passed
     let resolvedPackageId = packageSizeId;
     if (!resolvedPackageId) {
-      const firstPkg = db.prepare('SELECT id FROM package_sizes WHERE product_id = ? ORDER BY weight_kg ASC LIMIT 1').get(productId) as any;
+      const firstPkg = await db.prepare('SELECT id FROM package_sizes WHERE product_id = ? ORDER BY weight_kg ASC LIMIT 1').get(productId) as any;
       resolvedPackageId = firstPkg?.id || null;
     }
 
     const wishlistId = `wish_${crypto.randomUUID()}`;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO wishlists (id, customer_id, product_id, package_size_id, created_at)
       VALUES (?, ?, ?, ?, datetime('now'))
       ON CONFLICT(customer_id, product_id, package_size_id) DO NOTHING
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = assertFeatureEnabled('wishlist');
+  const guard = await assertFeatureEnabled('wishlist');
   if (!guard.enabled) {
     return NextResponse.json({ error: guard.error, code: 'FEATURE_DISABLED' }, { status: 403 });
   }
@@ -138,15 +138,15 @@ export async function DELETE(req: NextRequest) {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ?').get(user.id) as any;
     if (!customer) {
       return NextResponse.json({ error: 'Customer record not found' }, { status: 404 });
     }
 
     if (wishlistId) {
-      db.prepare('DELETE FROM wishlists WHERE id = ? AND customer_id = ?').run(wishlistId, customer.id);
+      await db.prepare('DELETE FROM wishlists WHERE id = ? AND customer_id = ?').run(wishlistId, customer.id);
     } else if (productId) {
-      db.prepare('DELETE FROM wishlists WHERE product_id = ? AND customer_id = ?').run(productId, customer.id);
+      await db.prepare('DELETE FROM wishlists WHERE product_id = ? AND customer_id = ?').run(productId, customer.id);
     } else {
       return NextResponse.json({ error: 'Either wishlist id or productId is required.' }, { status: 400 });
     }

@@ -25,12 +25,12 @@ export interface ProductSearchResult {
  * Searches active mango products and package sizes by variety name, package size, and maximum price.
  * Uses the canonical schema: p.status = 'ACTIVE', ps.is_active = 1, v.is_active = 1
  */
-export function searchProducts(params: {
+export async function searchProducts(params: {
   variety?: string;
   packageSize?: string;
   maxPrice?: number;
   inStockOnly?: boolean;
-} = {}): ProductSearchResult[] {
+} = {}): Promise<ProductSearchResult[]> {
   try {
     ensureDatabaseReady();
     const db = getDatabase();
@@ -85,7 +85,7 @@ export function searchProducts(params: {
 
     query += ` ORDER BY v.sweetness_brix DESC, ps.weight_kg ASC`;
 
-    const rows = db.prepare(query).all(...sqlParams) as any[];
+    const rows = (await db.prepare(query).all(...sqlParams)) as any[];
 
     return rows.map((r) => ({
       id: r.id,
@@ -115,12 +115,12 @@ export function searchProducts(params: {
  * Returns live cold-storage inventory levels and harvest status for varieties.
  * Uses the canonical schema: v.is_active = 1, p.status = 'ACTIVE', ps.is_active = 1
  */
-export function checkProductAvailability(variety?: string): {
+export async function checkProductAvailability(variety?: string): Promise<{
   variety: string;
   inStock: boolean;
   totalAvailableBoxes: number;
   packageBreakdown: Array<{ packageName: string; weightKg: number; stock: number; price: number }>;
-}[] {
+}[]> {
   try {
     ensureDatabaseReady();
     const db = getDatabase();
@@ -147,7 +147,7 @@ export function checkProductAvailability(variety?: string): {
 
     query += ` ORDER BY v.name ASC, ps.weight_kg ASC`;
 
-    const rows = db.prepare(query).all(...sqlParams) as any[];
+    const rows = (await db.prepare(query).all(...sqlParams)) as any[];
     const grouped: Record<string, any> = {};
 
     for (const row of rows) {
@@ -180,9 +180,9 @@ export function checkProductAvailability(variety?: string): {
  * 3. getCurrentPrice
  * Returns current pricing including sale discounts and packaging for varieties.
  */
-export function getCurrentPrice(variety?: string, packageSize?: string) {
+export async function getCurrentPrice(variety?: string, packageSize?: string) {
   try {
-    const products = searchProducts({ variety, packageSize });
+    const products = await searchProducts({ variety, packageSize });
     return products.map((p) => ({
       variety: p.variety,
       package: `${p.package_name} (${p.weight_kg} KG)`,
@@ -202,10 +202,10 @@ export function getCurrentPrice(variety?: string, packageSize?: string) {
  * 4. getActiveOffers
  * Returns active seasonal discounts, promotional coupon codes, and volume tier savings.
  */
-export function getActiveOffers(): {
+export async function getActiveOffers(): Promise<{
   coupons: Array<{ name: string; code: string; discount: string; minOrder: string; expiry: string }>;
   volumeDiscounts: Array<{ tier: string; discount: string; note: string }>;
-} {
+}> {
   const volumeDiscounts = [
     { tier: '5 – 9 Export Crates', discount: '5% Automatic Crate Rebate', note: 'Family & Gifting Package' },
     { tier: '10 – 19 Export Crates', discount: '10% Automatic Crate Rebate', note: 'Corporate & Celebration' },
@@ -216,11 +216,11 @@ export function getActiveOffers(): {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    const promos = db.prepare(`
+    const promos = (await db.prepare(`
       SELECT name, code, discount_type, discount_value, min_order_value, expires_at
       FROM promotions
       WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > datetime('now'))
-    `).all() as any[];
+    `).all()) as any[];
 
     const coupons = promos.map((p) => ({
       name: p.name,
@@ -307,13 +307,13 @@ export function getDeliveryInformation(city?: string) {
  * Protected order tracking with strict IDOR verification.
  * Requires matching customer session ID OR verified matching guest phone/email.
  */
-export function getCustomerOrderStatus(
+export async function getCustomerOrderStatus(
   orderNumber: string,
   verificationInfo?: {
     phoneOrEmail?: string;
     customerId?: string;
   }
-): {
+): Promise<{
   found: boolean;
   authorized: boolean;
   orderNumber?: string;
@@ -327,19 +327,19 @@ export function getCustomerOrderStatus(
   items?: Array<{ variety: string; package: string; quantity: number }>;
   timeline?: Array<{ title: string; description: string; time: string }>;
   error?: string;
-} {
+}> {
   try {
     ensureDatabaseReady();
     const db = getDatabase();
 
     const cleanOrderNum = orderNumber.trim().toUpperCase();
 
-    const order = db.prepare(`
+    const order = (await db.prepare(`
       SELECT o.*, c.name as courier_name
       FROM orders o
       LEFT JOIN couriers c ON c.id = o.courier_id
       WHERE UPPER(o.order_number) = ? OR o.id = ?
-    `).get(cleanOrderNum, cleanOrderNum) as any;
+    `).get(cleanOrderNum, cleanOrderNum)) as any;
 
     if (!order) {
       return {
@@ -389,21 +389,21 @@ export function getCustomerOrderStatus(
     }
 
     // Load items and timeline
-    const items = db.prepare(`
+    const items = (await db.prepare(`
       SELECT oi.quantity, oi.unit_price, oi.subtotal, ps.name as package_name, v.name as variety_name
       FROM order_items oi
       JOIN package_sizes ps ON ps.id = oi.package_size_id
       JOIN products p ON p.id = oi.product_id
       JOIN mango_varieties v ON v.id = p.variety_id
       WHERE oi.order_id = ?
-    `).all(order.id) as any[];
+    `).all(order.id)) as any[];
 
-    const timeline = db.prepare(`
+    const timeline = (await db.prepare(`
       SELECT title, description, created_at
       FROM order_timeline
       WHERE order_id = ?
       ORDER BY created_at DESC
-    `).all(order.id) as any[];
+    `).all(order.id)) as any[];
 
     return {
       found: true,

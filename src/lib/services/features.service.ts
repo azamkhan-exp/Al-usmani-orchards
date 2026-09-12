@@ -299,21 +299,22 @@ let lastFetchTime = 0;
 const CACHE_TTL_MS = 30_000;
 
 /**
- * Seed master feature catalog into SQLite if not already present.
+ * Seed master feature catalog into PostgreSQL if not already present.
  */
-export function seedFeatureFlags(): void {
+export async function seedFeatureFlags(): Promise<void> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   const insertStmt = db.prepare(`
-    INSERT OR IGNORE INTO feature_flags (
+    INSERT INTO feature_flags (
       key, name, description, category, enabled, customer_visible, admin_visible, configuration_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT (key) DO NOTHING
   `);
 
   for (const f of MASTER_FEATURE_CATALOG) {
     try {
-      insertStmt.run(
+      await insertStmt.run(
         f.key,
         f.name,
         f.description,
@@ -330,20 +331,19 @@ export function seedFeatureFlags(): void {
 }
 
 /**
- * Retrieve all feature flags from SQLite (with in-memory cache).
+ * Retrieve all feature flags from PostgreSQL (with in-memory cache).
  */
-export function getAllFeatureFlags(forceFresh = false): Record<string, FeatureFlag> {
+export async function getAllFeatureFlags(forceFresh = false): Promise<Record<string, FeatureFlag>> {
   const now = Date.now();
   if (!forceFresh && flagsCache && now - lastFetchTime < CACHE_TTL_MS) {
     return flagsCache;
   }
 
   ensureDatabaseReady();
-  seedFeatureFlags();
   const db = getDatabase();
 
   try {
-    const rows = db.prepare(`
+    const rows = await db.prepare(`
       SELECT key, name, description, category, enabled, customer_visible, admin_visible, configuration_json, updated_at, updated_by
       FROM feature_flags
     `).all() as any[];
@@ -362,9 +362,9 @@ export function getAllFeatureFlags(forceFresh = false): Record<string, FeatureFl
         name: r.name,
         description: r.description,
         category: r.category as FeatureCategory,
-        enabled: Boolean(r.enabled),
-        customer_visible: Boolean(r.customer_visible),
-        admin_visible: Boolean(r.admin_visible),
+        enabled: Boolean(Number(r.enabled)),
+        customer_visible: Boolean(Number(r.customer_visible)),
+        admin_visible: Boolean(Number(r.admin_visible)),
         configuration: config,
         updated_at: r.updated_at,
         updated_by: r.updated_by
@@ -382,7 +382,7 @@ export function getAllFeatureFlags(forceFresh = false): Record<string, FeatureFl
     lastFetchTime = now;
     return result;
   } catch (err) {
-    console.error('Failed to read feature flags from SQLite, using catalog fallback:', err);
+    console.error('Failed to read feature flags from database, using catalog fallback:', err);
     const fallback: Record<string, FeatureFlag> = {};
     for (const def of MASTER_FEATURE_CATALOG) {
       fallback[def.key] = { ...def };
@@ -394,16 +394,17 @@ export function getAllFeatureFlags(forceFresh = false): Record<string, FeatureFl
 /**
  * Authoritative server-side feature check.
  */
-export function isFeatureEnabled(key: string): boolean {
-  const flags = getAllFeatureFlags();
+export async function isFeatureEnabled(key: string): Promise<boolean> {
+  const flags = await getAllFeatureFlags();
   return flags[key] ? flags[key].enabled : true;
 }
 
 /**
  * Throws or returns standard HTTP 403 response if feature is disabled.
  */
-export function assertFeatureEnabled(key: string): { enabled: boolean; error?: string } {
-  if (!isFeatureEnabled(key)) {
+export async function assertFeatureEnabled(key: string): Promise<{ enabled: boolean; error?: string }> {
+  const enabled = await isFeatureEnabled(key);
+  if (!enabled) {
     return {
       enabled: false,
       error: `The requested feature '${key}' is currently disabled by store administration.`
@@ -413,32 +414,33 @@ export function assertFeatureEnabled(key: string): { enabled: boolean; error?: s
 }
 
 /**
- * Update a feature flag state in SQLite and log admin audit record.
+ * Update a feature flag state in PostgreSQL and log admin audit record.
  */
-export function updateFeatureFlag(
+export async function updateFeatureFlag(
   key: string,
   enabled: boolean,
   configuration?: Record<string, any>,
   adminEmail?: string
-): FeatureFlag {
+): Promise<FeatureFlag> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const prev = getAllFeatureFlags()[key];
+  const allFlags = await getAllFeatureFlags();
+  const prev = allFlags[key];
   const configJson = configuration ? JSON.stringify(configuration) : (prev ? JSON.stringify(prev.configuration) : '{}');
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE feature_flags
-    SET enabled = ?, configuration_json = ?, updated_at = datetime('now'), updated_by = ?
+    SET enabled = ?, configuration_json = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
     WHERE key = ?
   `).run(enabled ? 1 : 0, configJson, adminEmail || 'admin@alusmaniorchards.pk', key);
 
   // Log in admin_audit_logs
   try {
-    const crypto = require('node:crypto');
-    db.prepare(`
+    const crypto = await import('node:crypto');
+    await db.prepare(`
       INSERT INTO admin_audit_logs (id, user_id, user_email, action, resource_type, resource_id, previous_state, new_state, created_at)
-      VALUES (?, NULL, ?, 'UPDATE_FEATURE_FLAG', 'FEATURE_FLAG', ?, ?, ?, datetime('now'))
+      VALUES (?, NULL, ?, 'UPDATE_FEATURE_FLAG', 'FEATURE_FLAG', ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       crypto.randomUUID(),
       adminEmail || 'admin@alusmaniorchards.pk',
@@ -454,14 +456,15 @@ export function updateFeatureFlag(
   flagsCache = null;
   lastFetchTime = 0;
 
-  return getAllFeatureFlags(true)[key];
+  const freshFlags = await getAllFeatureFlags(true);
+  return freshFlags[key];
 }
 
 /**
  * Returns public-safe map of feature states for storefront hydration.
  */
-export function getPublicFeatureFlags(): Record<string, boolean> {
-  const flags = getAllFeatureFlags();
+export async function getPublicFeatureFlags(): Promise<Record<string, boolean>> {
+  const flags = await getAllFeatureFlags();
   const publicMap: Record<string, boolean> = {};
 
   for (const [key, flag] of Object.entries(flags)) {

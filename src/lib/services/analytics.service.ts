@@ -162,7 +162,7 @@ function calculateChange(current: number, previous: number): number {
 /**
  * Returns comprehensive analytics data for the admin dashboard.
  */
-export function getAnalyticsDashboard(filter: DateRangeFilter) {
+export async function getAnalyticsDashboard(filter: DateRangeFilter) {
   ensureDatabaseReady();
   const db = getDatabase();
   const range = resolveDateRange(filter);
@@ -205,7 +205,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   }
 
   // 1. REVENUE KPIS (Current vs Previous)
-  const currentRevRow = db.prepare(`
+  const currentRevRow = await db.prepare(`
     SELECT 
       COALESCE(SUM(total_amount), 0) as total_revenue,
       COALESCE(SUM(subtotal), 0) as gross_revenue,
@@ -218,7 +218,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
       AND ${orderFilter}
   `).get(range.currentStart, range.currentEnd) as any;
 
-  const prevRevRow = db.prepare(`
+  const prevRevRow = await db.prepare(`
     SELECT 
       COALESCE(SUM(total_amount), 0) as total_revenue,
       COUNT(id) as total_orders
@@ -228,12 +228,12 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
       AND ${orderFilter}
   `).get(range.prevStart, range.prevEnd) as any;
 
-  const currentRevenue = currentRevRow.total_revenue;
-  const prevRevenue = prevRevRow.total_revenue;
+  const currentRevenue = Number(currentRevRow?.total_revenue || 0);
+  const prevRevenue = Number(prevRevRow?.total_revenue || 0);
   const revenueChangePercent = calculateChange(currentRevenue, prevRevenue);
 
   // Lifetime & Period Anchors
-  const periodAnchors = db.prepare(`
+  const periodAnchors = await db.prepare(`
     SELECT 
       COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN total_amount ELSE 0 END), 0) as rev_today,
       COALESCE(SUM(CASE WHEN strftime('%W', created_at) = strftime('%W', 'now') AND strftime('%Y', created_at) = strftime('%Y', 'now') THEN total_amount ELSE 0 END), 0) as rev_this_week,
@@ -250,11 +250,11 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   `).get() as any;
 
   // 2. ORDER KPIS & STATUS BREAKDOWN
-  const currentOrders = currentRevRow.total_orders;
-  const prevOrders = prevRevRow.total_orders;
+  const currentOrders = Number(currentRevRow?.total_orders || 0);
+  const prevOrders = Number(prevRevRow?.total_orders || 0);
   const ordersChangePercent = calculateChange(currentOrders, prevOrders);
 
-  const orderStatusCounts = db.prepare(`
+  const orderStatusCounts = await db.prepare(`
     SELECT 
       status,
       COUNT(id) as count,
@@ -267,19 +267,19 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
 
   const pendingOrders = orderStatusCounts
     .filter(s => ['PENDING', 'PAYMENT_PENDING'].includes(s.status))
-    .reduce((sum, s) => sum + s.count, 0);
+    .reduce((sum, s) => sum + Number(s.count), 0);
 
   const completedOrders = orderStatusCounts
     .filter(s => s.status === 'DELIVERED')
-    .reduce((sum, s) => sum + s.count, 0);
+    .reduce((sum, s) => sum + Number(s.count), 0);
 
   const cancelledOrders = orderStatusCounts
     .filter(s => ['CANCELLED', 'FAILED'].includes(s.status))
-    .reduce((sum, s) => sum + s.count, 0);
+    .reduce((sum, s) => sum + Number(s.count), 0);
 
   const inTransitOrders = orderStatusCounts
     .filter(s => ['CONFIRMED', 'PROCESSING', 'PACKING', 'READY_TO_SHIP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(s.status))
-    .reduce((sum, s) => sum + s.count, 0);
+    .reduce((sum, s) => sum + Number(s.count), 0);
 
   // Average Order Value
   const currentAov = currentOrders > 0 ? Math.round(currentRevenue / currentOrders) : 0;
@@ -287,43 +287,43 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   const aovChangePercent = calculateChange(currentAov, prevAov);
 
   // 3. CUSTOMER KPIS (Real Customers Table)
-  const totalCustomers = (db.prepare(`SELECT COUNT(id) as c FROM customers WHERE ${custFilter}`).get() as any).c;
+  const totalCustomers = Number((await db.prepare(`SELECT COUNT(id) as c FROM customers WHERE ${custFilter}`).get() as any)?.c || 0);
 
-  const currentNewCust = (db.prepare(`
+  const currentNewCust = Number((await db.prepare(`
     SELECT COUNT(id) as c FROM customers
     WHERE created_at >= ? AND created_at <= ?
       AND ${custFilter}
-  `).get(range.currentStart, range.currentEnd) as any).c;
+  `).get(range.currentStart, range.currentEnd) as any)?.c || 0);
 
-  const prevNewCust = (db.prepare(`
+  const prevNewCust = Number((await db.prepare(`
     SELECT COUNT(id) as c FROM customers
     WHERE created_at >= ? AND created_at <= ?
       AND ${custFilter}
-  `).get(range.prevStart, range.prevEnd) as any).c;
+  `).get(range.prevStart, range.prevEnd) as any)?.c || 0);
 
   const newCustomersChangePercent = calculateChange(currentNewCust, prevNewCust);
 
   // Returning Customers: customers who placed an order in this period and have orders_count > 1
-  const returningCustCount = (db.prepare(`
+  const returningCustCount = Number((await db.prepare(`
     SELECT COUNT(DISTINCT customer_id) as c
     FROM orders
     WHERE customer_id IS NOT NULL
       AND created_at >= ? AND created_at <= ?
       AND ${orderFilter}
       AND customer_id IN (SELECT id FROM customers WHERE orders_count > 1 AND ${custFilter})
-  `).get(range.currentStart, range.currentEnd) as any).c;
+  `).get(range.currentStart, range.currentEnd) as any)?.c || 0);
 
   const customerGrowthRate = totalCustomers > 0 ? Math.round((currentNewCust / totalCustomers) * 1000) / 10 : 0;
 
   // 4. PRODUCT & INVENTORY KPIS
-  const productCounts = db.prepare(`
+  const productCounts = await db.prepare(`
     SELECT 
       COUNT(id) as total_products,
       COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_products
     FROM products
   `).get() as any;
 
-  const inventorySummary = db.prepare(`
+  const inventorySummary = await db.prepare(`
     SELECT 
       COUNT(id) as total_variants,
       COALESCE(SUM(total_stock), 0) as total_units,
@@ -374,7 +374,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     `;
   }
 
-  const rawTimeSeries = db.prepare(timeSeriesSql).all(range.currentStart, range.currentEnd) as Array<{
+  const rawTimeSeries = await db.prepare(timeSeriesSql).all(range.currentStart, range.currentEnd) as Array<{
     date_key: string;
     display_label: string;
     revenue: number;
@@ -383,7 +383,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   }>;
 
   // 6. SALES BY MANGO VARIETY
-  const varietySales = db.prepare(`
+  const varietySales = await db.prepare(`
     SELECT 
       v.id as variety_id,
       v.name as variety_name,
@@ -411,14 +411,14 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     orders_count: number;
   }>;
 
-  const totalVarietyRevenue = varietySales.reduce((acc, v) => acc + v.revenue, 0);
+  const totalVarietyRevenue = varietySales.reduce((acc, v) => acc + Number(v.revenue || 0), 0);
   const varietySalesWithShare = varietySales.map(v => ({
     ...v,
-    share_percent: totalVarietyRevenue > 0 ? Math.round((v.revenue / totalVarietyRevenue) * 1000) / 10 : 0
+    share_percent: totalVarietyRevenue > 0 ? Math.round((Number(v.revenue || 0) / totalVarietyRevenue) * 1000) / 10 : 0
   }));
 
   // 7. SALES BY PAYMENT METHOD (Authoritative methods from schema)
-  const paymentMethodSales = db.prepare(`
+  const paymentMethodSales = await db.prepare(`
     SELECT 
       o.payment_method,
       COUNT(o.id) as orders_count,
@@ -452,12 +452,12 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     return {
       ...pm,
       display_name: name,
-      share_percent: currentRevenue > 0 ? Math.round((pm.total_revenue / currentRevenue) * 1000) / 10 : 0
+      share_percent: currentRevenue > 0 ? Math.round((Number(pm.total_revenue || 0) / currentRevenue) * 1000) / 10 : 0
     };
   });
 
   // 8. TOP SELLING PRODUCTS & LOW PERFORMING PRODUCTS
-  const productPerformance = db.prepare(`
+  const productPerformance = await db.prepare(`
     SELECT 
       p.id,
       p.name,
@@ -497,19 +497,19 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     status: string;
   }>;
 
-  const totalProductRevenue = productPerformance.reduce((acc, p) => acc + p.revenue, 0);
+  const totalProductRevenue = productPerformance.reduce((acc, p) => acc + Number(p.revenue || 0), 0);
   const productsWithShare = productPerformance.map(p => ({
     ...p,
-    share_percent: totalProductRevenue > 0 ? Math.round((p.revenue / totalProductRevenue) * 1000) / 10 : 0
+    share_percent: totalProductRevenue > 0 ? Math.round((Number(p.revenue || 0) / totalProductRevenue) * 1000) / 10 : 0
   }));
 
-  const bestSellers = [...productsWithShare].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const bestSellers = [...productsWithShare].sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0)).slice(0, 5);
   const lowPerformers = [...productsWithShare]
     .filter(p => p.status === 'ACTIVE')
-    .sort((a, b) => a.units_sold - b.units_sold);
+    .sort((a, b) => Number(a.units_sold || 0) - Number(b.units_sold || 0));
 
   // 9. INVENTORY ALERTS (Low stock & Out of stock items)
-  const inventoryAlerts = db.prepare(`
+  const inventoryAlerts = await db.prepare(`
     SELECT 
       inv.id as inventory_id,
       p.name as product_name,
@@ -543,27 +543,27 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   }>;
 
   // 10. ORDER CONVERSION FUNNEL
-  const totalOrdersCreated = (db.prepare(`
+  const totalOrdersCreated = Number((await db.prepare(`
     SELECT COUNT(id) as c FROM orders 
     WHERE created_at >= ? AND created_at <= ?
       AND ${orderFilter}
-  `).get(range.currentStart, range.currentEnd) as any).c;
+  `).get(range.currentStart, range.currentEnd) as any)?.c || 0);
 
   const funnelStages = [
     { stage: 'Orders Created', count: totalOrdersCreated, color: '#113824' },
     {
       stage: 'Confirmed',
-      count: orderStatusCounts.filter(s => !['CANCELLED', 'FAILED', 'PENDING', 'PAYMENT_PENDING'].includes(s.status)).reduce((acc, s) => acc + s.count, 0),
+      count: orderStatusCounts.filter(s => !['CANCELLED', 'FAILED', 'PENDING', 'PAYMENT_PENDING'].includes(s.status)).reduce((acc, s) => acc + Number(s.count), 0),
       color: '#195235'
     },
     {
       stage: 'Processing / Packing',
-      count: orderStatusCounts.filter(s => ['PROCESSING', 'PACKING', 'READY_TO_SHIP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(s.status)).reduce((acc, s) => acc + s.count, 0),
+      count: orderStatusCounts.filter(s => ['PROCESSING', 'PACKING', 'READY_TO_SHIP', 'SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(s.status)).reduce((acc, s) => acc + Number(s.count), 0),
       color: '#D97706'
     },
     {
       stage: 'Dispatched & Transit',
-      count: orderStatusCounts.filter(s => ['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(s.status)).reduce((acc, s) => acc + s.count, 0),
+      count: orderStatusCounts.filter(s => ['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(s.status)).reduce((acc, s) => acc + Number(s.count), 0),
       color: '#F59E0B'
     },
     {
@@ -579,12 +579,12 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
 
   const leakageMetrics = {
     cancelled: cancelledOrders,
-    failed: orderStatusCounts.filter(s => s.status === 'FAILED').reduce((acc, s) => acc + s.count, 0),
-    refunded: (db.prepare(`SELECT COUNT(id) as c FROM refunds WHERE status = 'PROCESSED' AND created_at >= ? AND created_at <= ?`).get(range.currentStart, range.currentEnd) as any)?.c || 0
+    failed: orderStatusCounts.filter(s => s.status === 'FAILED').reduce((acc, s) => acc + Number(s.count), 0),
+    refunded: Number((await db.prepare(`SELECT COUNT(id) as c FROM refunds WHERE status = 'PROCESSED' AND created_at >= ? AND created_at <= ?`).get(range.currentStart, range.currentEnd) as any)?.c || 0)
   };
 
   // 11. DISCOUNT & OFFER ANALYTICS
-  const discountStats = db.prepare(`
+  const discountStats = await db.prepare(`
     SELECT 
       COALESCE(SUM(discount_amount), 0) as total_discounts_given,
       COUNT(CASE WHEN discount_amount > 0 THEN 1 END) as orders_with_discount,
@@ -595,7 +595,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
       AND ${orderFilter}
   `).get(range.currentStart, range.currentEnd) as any;
 
-  const topCouponsUsed = db.prepare(`
+  const topCouponsUsed = await db.prepare(`
     SELECT 
       coupon_code,
       COUNT(id) as times_used,
@@ -617,7 +617,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
   }>;
 
   // 12. GEOGRAPHICAL ANALYTICS (Orders by City, Province, District)
-  const cityAnalytics = db.prepare(`
+  const cityAnalytics = await db.prepare(`
     SELECT 
       COALESCE(
         NULLIF(TRIM(json_extract(o.shipping_address_json, '$.city')), ''),
@@ -640,14 +640,14 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     total_revenue: number;
   }>;
 
-  const totalCityRevenue = cityAnalytics.reduce((acc, c) => acc + c.total_revenue, 0);
+  const totalCityRevenue = cityAnalytics.reduce((acc, c) => acc + Number(c.total_revenue || 0), 0);
   const cityAnalyticsWithShare = cityAnalytics.map(c => ({
     ...c,
-    share_percent: totalCityRevenue > 0 ? Math.round((c.total_revenue / totalCityRevenue) * 1000) / 10 : 0
+    share_percent: totalCityRevenue > 0 ? Math.round((Number(c.total_revenue || 0) / totalCityRevenue) * 1000) / 10 : 0
   }));
 
   // Province Breakdown
-  const provinceAnalytics = db.prepare(`
+  const provinceAnalytics = await db.prepare(`
     SELECT 
       COALESCE(
         NULLIF(TRIM(json_extract(o.shipping_address_json, '$.province')), ''),
@@ -667,14 +667,14 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
     total_revenue: number;
   }>;
 
-  const totalProvRevenue = provinceAnalytics.reduce((acc, p) => acc + p.total_revenue, 0);
+  const totalProvRevenue = provinceAnalytics.reduce((acc, p) => acc + Number(p.total_revenue || 0), 0);
   const provinceAnalyticsWithShare = provinceAnalytics.map(p => ({
     ...p,
-    share_percent: totalProvRevenue > 0 ? Math.round((p.total_revenue / totalProvRevenue) * 1000) / 10 : 0
+    share_percent: totalProvRevenue > 0 ? Math.round((Number(p.total_revenue || 0) / totalProvRevenue) * 1000) / 10 : 0
   }));
 
   // District Breakdown
-  const districtAnalytics = db.prepare(`
+  const districtAnalytics = await db.prepare(`
     SELECT 
       COALESCE(
         NULLIF(TRIM(json_extract(o.shipping_address_json, '$.district')), ''),
@@ -783,7 +783,7 @@ export function getAnalyticsDashboard(filter: DateRangeFilter) {
 /**
  * Generates sanitized tabular rows and column definitions for CSV reports.
  */
-export function generateReportData(
+export async function generateReportData(
   reportType: 'sales' | 'orders' | 'products' | 'customers' | 'inventory' | 'payments' | 'discounts',
   filter: DateRangeFilter
 ) {
@@ -817,7 +817,7 @@ export function generateReportData(
 
   switch (reportType) {
     case 'sales': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           o.created_at,
           o.order_number,
@@ -835,7 +835,7 @@ export function generateReportData(
         WHERE o.created_at >= ? AND o.created_at <= ?
           AND ${orderFilterAlias}
         ORDER BY o.created_at DESC
-      `).all(range.currentStart, range.currentEnd);
+      `).all(range.currentStart, range.currentEnd) as any[];
 
       return {
         filename: `al-usmani-sales-report-${filter.preset}.csv`,
@@ -857,7 +857,7 @@ export function generateReportData(
     }
 
     case 'orders': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           o.order_number,
           o.created_at,
@@ -876,7 +876,7 @@ export function generateReportData(
         WHERE o.created_at >= ? AND o.created_at <= ?
           AND ${orderFilterAlias}
         ORDER BY o.created_at DESC
-      `).all(range.currentStart, range.currentEnd);
+      `).all(range.currentStart, range.currentEnd) as any[];
 
       return {
         filename: `al-usmani-orders-report-${filter.preset}.csv`,
@@ -898,7 +898,7 @@ export function generateReportData(
     }
 
     case 'products': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           p.name as product_name,
           v.name as variety_name,
@@ -922,7 +922,7 @@ export function generateReportData(
         ) inv ON inv.product_id = p.id
         GROUP BY p.id, p.name
         ORDER BY revenue DESC
-      `).all(range.currentStart, range.currentEnd);
+      `).all(range.currentStart, range.currentEnd) as any[];
 
       return {
         filename: `al-usmani-products-performance-${filter.preset}.csv`,
@@ -941,7 +941,7 @@ export function generateReportData(
     }
 
     case 'customers': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           c.full_name,
           c.email,
@@ -954,7 +954,7 @@ export function generateReportData(
         FROM customers c
         WHERE ${custFilterAlias}
         ORDER BY c.total_spent DESC
-      `).all();
+      `).all() as any[];
 
       return {
         filename: `al-usmani-customer-directory.csv`,
@@ -973,7 +973,7 @@ export function generateReportData(
     }
 
     case 'inventory': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           p.name as product_name,
           v.name as variety_name,
@@ -993,7 +993,7 @@ export function generateReportData(
         JOIN products p ON p.id = ps.product_id
         JOIN mango_varieties v ON v.id = p.variety_id
         ORDER BY inv.available_stock ASC
-      `).all();
+      `).all() as any[];
 
       return {
         filename: `al-usmani-inventory-audit.csv`,
@@ -1013,7 +1013,7 @@ export function generateReportData(
     }
 
     case 'payments': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           o.order_number,
           o.created_at,
@@ -1026,7 +1026,7 @@ export function generateReportData(
         WHERE o.created_at >= ? AND o.created_at <= ?
           AND ${orderFilterAlias}
         ORDER BY o.created_at DESC
-      `).all(range.currentStart, range.currentEnd);
+      `).all(range.currentStart, range.currentEnd) as any[];
 
       return {
         filename: `al-usmani-payment-reconciliation-${filter.preset}.csv`,
@@ -1043,7 +1043,7 @@ export function generateReportData(
     }
 
     case 'discounts': {
-      const rows = db.prepare(`
+      const rows = await db.prepare(`
         SELECT 
           p.code,
           p.name,
@@ -1059,7 +1059,7 @@ export function generateReportData(
           AND ${orderFilterAlias}
         GROUP BY p.id, p.code
         ORDER BY total_discounts_given DESC
-      `).all(range.currentStart, range.currentEnd);
+      `).all(range.currentStart, range.currentEnd) as any[];
 
       return {
         filename: `al-usmani-discounts-audit-${filter.preset}.csv`,

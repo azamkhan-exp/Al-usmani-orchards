@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token is required.' }, { status: 400 });
     }
 
-    const validation = validateInvitationToken(token);
+    const validation = await validateInvitationToken(token);
     if (!validation.valid) {
       return NextResponse.json({ error: validation.error || 'Invalid or expired invitation.' }, { status: 400 });
     }

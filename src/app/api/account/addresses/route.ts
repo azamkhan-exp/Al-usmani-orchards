@@ -13,12 +13,12 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
     if (!customer) {
       return NextResponse.json({ success: true, addresses: [] });
     }
 
-    const addresses = db.prepare(`
+    const addresses = await db.prepare(`
       SELECT * FROM customer_addresses
       WHERE customer_id = ?
       ORDER BY is_default DESC, id ASC
@@ -47,10 +47,10 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDatabase();
-    let customer = db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    let customer = await db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
     if (!customer) {
       const custId = crypto.randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO customers (id, user_id, full_name, email, phone, city, segment, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 'NEW', datetime('now'))
       `).run(custId, user.id, user.name, user.email, phone, city);
@@ -60,10 +60,10 @@ export async function POST(req: NextRequest) {
     const addressId = crypto.randomUUID();
 
     if (isDefault) {
-      db.prepare('UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?').run(customer.id);
+      await db.prepare('UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?').run(customer.id);
     }
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO customer_addresses (
         id, customer_id, label, recipient_name, phone, street_address, area, city, province, postal_code, is_default
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -104,23 +104,23 @@ export async function PUT(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
     if (!customer) {
       return NextResponse.json({ error: 'Customer record not found' }, { status: 404 });
     }
 
     // Verify address belongs to authenticated customer (IDOR Protection)
-    const existing = db.prepare('SELECT id FROM customer_addresses WHERE id = ? AND customer_id = ?').get(id, customer.id);
+    const existing = await db.prepare('SELECT id FROM customer_addresses WHERE id = ? AND customer_id = ?').get(id, customer.id);
     if (!existing) {
       return NextResponse.json({ error: 'Address not found or access denied' }, { status: 403 });
     }
 
-    runTransaction((database: any) => {
+    await runTransaction(async (database: any) => {
       if (isDefault) {
-        database.prepare('UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?').run(customer.id);
+        await database.prepare('UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?').run(customer.id);
       }
 
-      database.prepare(`
+      await database.prepare(`
         UPDATE customer_addresses
         SET
           label = ?,
@@ -170,13 +170,13 @@ export async function DELETE(req: NextRequest) {
     }
 
     const db = getDatabase();
-    const customer = db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
+    const customer = await db.prepare('SELECT id FROM customers WHERE user_id = ? OR email = ?').get(user.id, user.email) as any;
     if (!customer) {
       return NextResponse.json({ error: 'Customer record not found' }, { status: 404 });
     }
 
     // Strict IDOR Protection: Address must belong to authenticated customer
-    const result = db.prepare('DELETE FROM customer_addresses WHERE id = ? AND customer_id = ?').run(id, customer.id);
+    const result = await db.prepare('DELETE FROM customer_addresses WHERE id = ? AND customer_id = ?').run(id, customer.id);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Address not found or access denied' }, { status: 403 });

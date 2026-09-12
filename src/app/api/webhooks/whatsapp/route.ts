@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const token = searchParams.get('hub.verify_token');
     const challenge = searchParams.get('hub.challenge');
 
-    const config = getWhatsAppConfig();
+    const config = await getWhatsAppConfig();
 
     if (mode === 'subscribe' && token === config.webhookVerifyToken) {
       console.log('[WHATSAPP WEBHOOK] Verified Meta handshake successfully.');
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
             try {
               // Update status in notification_logs if found by payload
-              db.prepare(`
+              await db.prepare(`
                 UPDATE notification_logs
                 SET status = ?, error = ?
                 WHERE recipient LIKE ? AND channel = 'WHATSAPP' AND created_at > datetime('now', '-2 days')
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
             // Log inbound interaction into notification_logs
             try {
               const crypto = require('node:crypto');
-              db.prepare(`
+              await db.prepare(`
                 INSERT INTO notification_logs (id, order_id, recipient, subject, type, status, error, channel, payload_json, created_at)
                 VALUES (?, NULL, ?, 'Customer Inbound WhatsApp Reply', 'INBOUND_REPLY', 'RECEIVED', NULL, 'WHATSAPP', ?, datetime('now'))
               `).run(

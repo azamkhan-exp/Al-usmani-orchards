@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
     query += ` ORDER BY r.created_at DESC LIMIT 100`;
 
-    const reviews = db.prepare(query).all(...params);
+    const reviews = await db.prepare(query).all(...params);
 
     return NextResponse.json({
       success: true,
@@ -72,7 +72,7 @@ export async function PATCH(req: NextRequest) {
     ensureDatabaseReady();
     const db = getDatabase();
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE customer_reviews
       SET status = ?, is_approved = ?
       WHERE id = ?

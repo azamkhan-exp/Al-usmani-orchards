@@ -16,7 +16,7 @@ export async function GET() {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status });
     }
 
-    const data = listAdminUsers();
+    const data = await listAdminUsers();
     return NextResponse.json({
       success: true,
       ...data,
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const requestMode = (mode || type || '').toUpperCase();
 
     if (requestMode === 'DIRECT') {
-      const result = createAdminUserDirectly({
+      const result = await createAdminUserDirectly({
         name,
         email,
         role,

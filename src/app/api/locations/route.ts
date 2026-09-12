@@ -17,31 +17,31 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || undefined;
 
     if (action === 'provinces') {
-      const provinces = getProvinces();
+      const provinces = await getProvinces();
       return NextResponse.json({ success: true, provinces });
     }
 
     if (action === 'districts') {
-      const districts = getDistricts(province);
+      const districts = await getDistricts(province);
       return NextResponse.json({ success: true, province, districts });
     }
 
     if (action === 'cities') {
-      const cities = getCities(province, district);
+      const cities = await getCities(province, district);
       return NextResponse.json({ success: true, province, district, cities });
     }
 
     if (search) {
-      const result = getLocationsList({ search, limit: 20 });
+      const result = await getLocationsList({ search, limit: 20 });
       return NextResponse.json({ success: true, locations: result.locations });
     }
 
     // Default: return complete structured hierarchy
-    const provinces = getProvinces();
+    const provinces = await getProvinces();
     const firstProv = province || provinces[0] || 'Punjab';
-    const districts = getDistricts(firstProv);
+    const districts = await getDistricts(firstProv);
     const firstDist = district || districts[0] || 'Multan';
-    const cities = getCities(firstProv, firstDist);
+    const cities = await getCities(firstProv, firstDist);
 
     return NextResponse.json({
       success: true,

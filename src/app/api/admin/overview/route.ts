@@ -13,11 +13,11 @@ export async function GET() {
     }
 
     const db = getDatabase();
-    const financial = getFinancialOverview();
-    const cashFlow = getCashFlowTrends();
+    const financial = await getFinancialOverview();
+    const cashFlow = await getCashFlowTrends();
 
     // Recent orders with customer & items
-    const recentOrders = db.prepare(`
+    const recentOrders = await db.prepare(`
       SELECT 
         o.id, o.order_number, o.status, o.total_amount, o.payment_method,
         o.payment_status, o.tracking_number, o.created_at,
@@ -25,12 +25,12 @@ export async function GET() {
         COALESCE(c.city, 'Pakistan') as city
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
-      ORDER BY datetime(o.created_at) DESC
+      ORDER BY o.created_at DESC
       LIMIT 10
     `).all();
 
     // Best-selling varieties
-    const varietySales = db.prepare(`
+    const varietySales = await db.prepare(`
       SELECT 
         v.name as variety_name,
         SUM(oi.quantity) as total_boxes,
@@ -45,7 +45,7 @@ export async function GET() {
     `).all();
 
     // Low stock alerts
-    const lowStockAlerts = db.prepare(`
+    const lowStockAlerts = await db.prepare(`
       SELECT 
         v.name as variety_name,
         ps.name as package_name,
@@ -59,7 +59,7 @@ export async function GET() {
     `).all();
 
     // Active preorders count
-    const activePreorders = db.prepare(`
+    const activePreorders = await db.prepare(`
       SELECT COUNT(id) as count, COALESCE(SUM(reserved_count), 0) as reserved_boxes
       FROM preorder_campaigns
       WHERE status = 'ACTIVE'

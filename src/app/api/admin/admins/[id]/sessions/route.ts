@@ -13,7 +13,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = revokeAdminSessions({
+    const result = await revokeAdminSessions({
       targetUserId: id,
       actorUserId: auth.user.id,
       actorUserEmail: auth.user.email

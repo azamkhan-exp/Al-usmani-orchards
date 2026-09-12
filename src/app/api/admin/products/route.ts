@@ -17,7 +17,7 @@ export async function GET() {
 
     const db = getDatabase();
 
-    const rawProducts = db.prepare(`
+    const rawProducts = (await db.prepare(`
       SELECT 
         p.*,
         v.name as variety_name,
@@ -31,7 +31,7 @@ export async function GET() {
       FROM products p
       JOIN mango_varieties v ON v.id = p.variety_id
       ORDER BY p.is_featured DESC, p.created_at ASC
-    `).all() as any[];
+    `).all()) as any[];
 
     const getPackages = db.prepare(`
       SELECT 
@@ -54,14 +54,16 @@ export async function GET() {
     `);
 
     // Strictly normalize every single product and package through our canonical DTO layer
-    const products = rawProducts.map((prod) => {
-      const rawPackages = getPackages.all(prod.id) as any[];
-      const normalized = normalizeProduct(prod, rawPackages);
-      (normalized as any).payment_method_overrides = getPaymentOverrides.all(prod.id);
-      return normalized;
-    });
+    const products = await Promise.all(
+      rawProducts.map(async (prod) => {
+        const rawPackages = (await getPackages.all(prod.id)) as any[];
+        const normalized = normalizeProduct(prod, rawPackages);
+        (normalized as any).payment_method_overrides = await getPaymentOverrides.all(prod.id);
+        return normalized;
+      })
+    );
 
-    const rawVarieties = db.prepare('SELECT * FROM mango_varieties ORDER BY sort_order ASC').all() as any[];
+    const rawVarieties = (await db.prepare('SELECT * FROM mango_varieties ORDER BY sort_order ASC').all()) as any[];
     const varieties = serializeVarieties(rawVarieties);
 
     return NextResponse.json({ success: true, products, varieties });
@@ -110,8 +112,8 @@ export async function POST(req: NextRequest) {
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + `-${Date.now().toString().slice(-4)}`;
       const prodStatus = status || 'ACTIVE';
 
-      runTransaction((database) => {
-        database.prepare(`
+      await runTransaction(async (database) => {
+        await database.prepare(`
           INSERT INTO products (
             id, variety_id, name, slug, tagline, description, grade,
             harvest_season, status, is_featured, is_preorder_active,
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
         if (initialPackageName && initialBasePrice) {
           const pkgId = crypto.randomUUID();
           const sku = `PKG-${Date.now().toString().slice(-6)}`;
-          database.prepare(`
+          await database.prepare(`
             INSERT INTO package_sizes (
               id, product_id, name, weight_kg, base_price, sale_price,
               wholesale_price, sku, is_active, sort_order
@@ -152,14 +154,14 @@ export async function POST(req: NextRequest) {
           );
 
           const stock = initialStock ? Number(initialStock) : 50;
-          database.prepare(`
+          await database.prepare(`
             INSERT INTO inventory (id, package_size_id, total_stock, available_stock, low_stock_threshold)
             VALUES (?, ?, ?, ?, 10)
           `).run(crypto.randomUUID(), pkgId, stock, stock);
         }
       });
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PRODUCT_CREATED',
@@ -181,8 +183,8 @@ export async function POST(req: NextRequest) {
       const packageId = crypto.randomUUID();
       const sku = `PKG-${Date.now().toString().slice(-6)}`;
 
-      runTransaction((database) => {
-        database.prepare(`
+      await runTransaction(async (database) => {
+        await database.prepare(`
           INSERT INTO package_sizes (
             id, product_id, name, weight_kg, base_price, sale_price,
             preorder_price, wholesale_price, sku, is_active, sort_order
@@ -195,13 +197,13 @@ export async function POST(req: NextRequest) {
         );
 
         const stock = initialStock ? Number(initialStock) : 50;
-        database.prepare(`
+        await database.prepare(`
           INSERT INTO inventory (id, package_size_id, total_stock, available_stock, low_stock_threshold)
           VALUES (?, ?, ?, ?, 10)
         `).run(crypto.randomUUID(), packageId, stock, stock);
       });
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PACKAGE_SIZE_CREATED',
@@ -219,7 +221,7 @@ export async function POST(req: NextRequest) {
       const varietyId = crypto.randomUUID();
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO mango_varieties (
           id, name, slug, origin_city, harvest_start_month, harvest_end_month,
           sweetness_brix, aroma_level, fiber_level, acidity_level, description,
@@ -227,7 +229,7 @@ export async function POST(req: NextRequest) {
         ) VALUES (?, ?, ?, ?, 6, 8, ?, ?, 2, 2, ?, 'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=1000&q=80', 1)
       `).run(varietyId, name, slug, originCity || 'Punjab', Number(sweetnessBrix || 22), Number(aromaLevel || 8), description || '');
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'VARIETY_CREATED',
@@ -263,10 +265,10 @@ export async function PUT(req: NextRequest) {
       const { id, name, imageUrl, originCity, sweetnessBrix, aromaLevel, description, flavorNotes } = body;
       if (!id) return NextResponse.json({ error: 'Variety ID required' }, { status: 400 });
 
-      const existing = db.prepare('SELECT * FROM mango_varieties WHERE id = ?').get(id) as any;
+      const existing = (await db.prepare('SELECT * FROM mango_varieties WHERE id = ?').get(id)) as any;
       if (!existing) return NextResponse.json({ error: 'Variety not found' }, { status: 404 });
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE mango_varieties
         SET
           name = COALESCE(?, name),
@@ -290,14 +292,14 @@ export async function PUT(req: NextRequest) {
 
       // If imageUrl is provided, also sync to primary_image of products associated with this variety
       if (imageUrl) {
-        db.prepare(`
+        await db.prepare(`
           UPDATE products
           SET primary_image = ?, updated_at = datetime('now')
           WHERE variety_id = ?
         `).run(imageUrl, id);
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'VARIETY_UPDATED',
@@ -315,10 +317,10 @@ export async function PUT(req: NextRequest) {
       const { id, name, tagline, description, grade, harvestSeason, status, isFeatured, isPreorderActive, primaryImage } = body;
       if (!id) return NextResponse.json({ error: 'Product ID required' }, { status: 400 });
 
-      const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
+      const existing = (await db.prepare('SELECT * FROM products WHERE id = ?').get(id)) as any;
       if (!existing) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE products
         SET
           name = COALESCE(?, name),
@@ -347,11 +349,11 @@ export async function PUT(req: NextRequest) {
 
       if (body.payment_method_overrides && typeof body.payment_method_overrides === 'object') {
         for (const [code, st] of Object.entries(body.payment_method_overrides)) {
-          setProductPaymentOverride(id, code, st as any);
+          await setProductPaymentOverride(id, code, st as any);
         }
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PRODUCT_UPDATED',
@@ -372,10 +374,10 @@ export async function PUT(req: NextRequest) {
       }
 
       for (const [code, st] of Object.entries(overrides)) {
-        setProductPaymentOverride(productId, code, st as any);
+        await setProductPaymentOverride(productId, code, st as any);
       }
 
-      recordAuditLog({
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PRODUCT_PAYMENT_OVERRIDES_UPDATED',
@@ -393,12 +395,12 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Package ID required' }, { status: 400 });
     }
 
-    const existingPkg = db.prepare('SELECT * FROM package_sizes WHERE id = ?').get(packageId) as any;
+    const existingPkg = (await db.prepare('SELECT * FROM package_sizes WHERE id = ?').get(packageId)) as any;
     if (!existingPkg) {
       return NextResponse.json({ error: 'Package size not found' }, { status: 404 });
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE package_sizes
       SET 
         base_price = COALESCE(?, base_price),
@@ -414,7 +416,7 @@ export async function PUT(req: NextRequest) {
       packageId
     );
 
-    recordAuditLog({
+    await recordAuditLog({
       userId: user.id,
       userEmail: user.email,
       action: 'PACKAGE_SIZE_UPDATED',
@@ -446,8 +448,8 @@ export async function DELETE(req: NextRequest) {
 
     if (productId) {
       // Soft-archive product
-      db.prepare("UPDATE products SET status = 'INACTIVE' WHERE id = ?").run(productId);
-      recordAuditLog({
+      await db.prepare("UPDATE products SET status = 'INACTIVE' WHERE id = ?").run(productId);
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PRODUCT_ARCHIVED',
@@ -458,8 +460,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (packageId) {
-      db.prepare('UPDATE package_sizes SET is_active = 0 WHERE id = ?').run(packageId);
-      recordAuditLog({
+      await db.prepare('UPDATE package_sizes SET is_active = 0 WHERE id = ?').run(packageId);
+      await recordAuditLog({
         userId: user.id,
         userEmail: user.email,
         action: 'PACKAGE_SIZE_DEACTIVATED',

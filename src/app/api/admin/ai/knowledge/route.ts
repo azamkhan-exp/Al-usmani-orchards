@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get('category') || undefined;
     const search = searchParams.get('search') || undefined;
 
-    const docs = getAllKnowledgeDocuments({ category, search });
+    const docs = await getAllKnowledgeDocuments({ category, search });
     return NextResponse.json({ success: true, documents: docs });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed to fetch knowledge documents' }, { status: 500 });
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Category, title, and content are required.' }, { status: 400 });
     }
 
-    const newDoc = createKnowledgeDocument({
+    const newDoc = await createKnowledgeDocument({
       category,
       title,
       content,
@@ -70,7 +70,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Document ID is required.' }, { status: 400 });
     }
 
-    const updated = updateKnowledgeDocument(id, updates);
+    const updated = await updateKnowledgeDocument(id, updates);
     if (!updated) {
       return NextResponse.json({ error: 'Document not found.' }, { status: 404 });
     }
@@ -96,7 +96,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Document ID is required.' }, { status: 400 });
     }
 
-    const success = deleteKnowledgeDocument(id);
+    const success = await deleteKnowledgeDocument(id);
     return NextResponse.json({ success });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed to delete document' }, { status: 500 });

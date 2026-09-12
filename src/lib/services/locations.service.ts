@@ -169,10 +169,10 @@ export const MASTER_PAKISTAN_LOCATIONS = [
 /**
  * Initializes and seeds the pakistan_locations table if empty.
  */
-export function seedPakistanLocations() {
+export async function seedPakistanLocations(): Promise<void> {
   const db = getDatabase();
-  const countRow = db.prepare(`SELECT count(*) as c FROM pakistan_locations`).get() as { c: number };
-  if (countRow && countRow.c > 20) {
+  const countRow = await db.prepare(`SELECT count(*) as c FROM pakistan_locations`).get() as { c: number };
+  if (countRow && Number(countRow.c) > 20) {
     return; // Already populated
   }
 
@@ -182,13 +182,13 @@ export function seedPakistanLocations() {
       delivery_fee, estimated_delivery_days, cod_available, is_serviceable, is_active, sort_order,
       created_at, updated_at
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now')
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
   `);
 
   for (const loc of MASTER_PAKISTAN_LOCATIONS) {
     const id = `loc_${crypto.randomUUID()}`;
-    insert.run(
+    await insert.run(
       id,
       loc.province,
       loc.division || null,
@@ -209,10 +209,10 @@ export function seedPakistanLocations() {
 /**
  * Get distinct list of provinces/territories.
  */
-export function getProvinces(): string[] {
+export async function getProvinces(): Promise<string[]> {
   ensureDatabaseReady();
   const db = getDatabase();
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT DISTINCT province 
     FROM pakistan_locations 
     WHERE is_active = 1 
@@ -235,7 +235,7 @@ export function getProvinces(): string[] {
 /**
  * Get distinct districts for a province.
  */
-export function getDistricts(province?: string): string[] {
+export async function getDistricts(province?: string): Promise<string[]> {
   ensureDatabaseReady();
   const db = getDatabase();
   let query = `SELECT DISTINCT district FROM pakistan_locations WHERE is_active = 1`;
@@ -247,14 +247,14 @@ export function getDistricts(province?: string): string[] {
   }
 
   query += ` ORDER BY district ASC`;
-  const rows = db.prepare(query).all(...params) as Array<{ district: string }>;
+  const rows = await db.prepare(query).all(...params) as Array<{ district: string }>;
   return rows.map(r => r.district);
 }
 
 /**
  * Get cities in a district/province.
  */
-export function getCities(province?: string, district?: string): Array<{
+export async function getCities(province?: string, district?: string): Promise<Array<{
   id: string;
   city: string;
   area?: string;
@@ -262,7 +262,7 @@ export function getCities(province?: string, district?: string): Array<{
   estimated_delivery_days: string;
   cod_available: number;
   is_serviceable: number;
-}> {
+}>> {
   ensureDatabaseReady();
   const db = getDatabase();
   let query = `
@@ -282,24 +282,24 @@ export function getCities(province?: string, district?: string): Array<{
   }
 
   query += ` ORDER BY city ASC, area ASC`;
-  return db.prepare(query).all(...params) as any[];
+  return await db.prepare(query).all(...params) as any[];
 }
 
 /**
  * Validates a submitted checkout location against the database.
  */
-export function validateCheckoutLocation(province: string, district: string, city: string): {
+export async function validateCheckoutLocation(province: string, district: string, city: string): Promise<{
   valid: boolean;
   serviceable: boolean;
   codAvailable: boolean;
   deliveryFee: number;
   estimatedDays: string;
   error?: string;
-} {
+}> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const match = db.prepare(`
+  const match = await db.prepare(`
     SELECT * FROM pakistan_locations 
     WHERE is_active = 1
       AND (
@@ -323,11 +323,11 @@ export function validateCheckoutLocation(province: string, district: string, cit
 
   return {
     valid: true,
-    serviceable: match.is_serviceable === 1,
-    codAvailable: match.cod_available === 1,
-    deliveryFee: match.delivery_fee,
+    serviceable: Number(match.is_serviceable) === 1,
+    codAvailable: Number(match.cod_available) === 1,
+    deliveryFee: Number(match.delivery_fee),
     estimatedDays: match.estimated_delivery_days,
-    error: match.is_serviceable === 0 
+    error: Number(match.is_serviceable) === 0 
       ? 'This location is currently outside our direct express cold-chain network. Please contact our WhatsApp concierge for specialized direct cargo dispatch.' 
       : undefined
   };
@@ -336,7 +336,7 @@ export function validateCheckoutLocation(province: string, district: string, cit
 /**
  * Filtered admin list of locations with pagination.
  */
-export function getLocationsList(filters: LocationFilters = {}): {
+export async function getLocationsList(filters: LocationFilters = {}): Promise<{
   locations: PakistanLocation[];
   total: number;
   page: number;
@@ -348,7 +348,7 @@ export function getLocationsList(filters: LocationFilters = {}): {
     cod_count: number;
     provinces_count: number;
   };
-} {
+}> {
   ensureDatabaseReady();
   const db = getDatabase();
 
@@ -389,10 +389,10 @@ export function getLocationsList(filters: LocationFilters = {}): {
 
   const whereSql = whereClauses.join(' AND ');
 
-  const countRow = db.prepare(`SELECT count(*) as count FROM pakistan_locations WHERE ${whereSql}`).get(...params) as { count: number };
-  const total = countRow ? countRow.count : 0;
+  const countRow = await db.prepare(`SELECT count(*) as count FROM pakistan_locations WHERE ${whereSql}`).get(...params) as { count: number };
+  const total = countRow ? Number(countRow.count) : 0;
 
-  const locations = db.prepare(`
+  const locations = await db.prepare(`
     SELECT * FROM pakistan_locations 
     WHERE ${whereSql}
     ORDER BY 
@@ -413,7 +413,7 @@ export function getLocationsList(filters: LocationFilters = {}): {
   `).all(...params, limit, offset) as PakistanLocation[];
 
   // Global summary statistics
-  const summaryRow = db.prepare(`
+  const summaryRow = await db.prepare(`
     SELECT 
       count(*) as total_locations,
       SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_count,
@@ -429,11 +429,11 @@ export function getLocationsList(filters: LocationFilters = {}): {
     page,
     totalPages: Math.ceil(total / limit) || 1,
     summary: {
-      total_locations: summaryRow?.total_locations || 0,
-      active_count: summaryRow?.active_count || 0,
-      serviceable_count: summaryRow?.serviceable_count || 0,
-      cod_count: summaryRow?.cod_count || 0,
-      provinces_count: summaryRow?.provinces_count || 0
+      total_locations: Number(summaryRow?.total_locations || 0),
+      active_count: Number(summaryRow?.active_count || 0),
+      serviceable_count: Number(summaryRow?.serviceable_count || 0),
+      cod_count: Number(summaryRow?.cod_count || 0),
+      provinces_count: Number(summaryRow?.provinces_count || 0)
     }
   };
 }
@@ -441,7 +441,7 @@ export function getLocationsList(filters: LocationFilters = {}): {
 /**
  * Creates a new location in the database.
  */
-export function createLocation(data: {
+export async function createLocation(data: {
   province: string;
   division?: string;
   district: string;
@@ -454,12 +454,12 @@ export function createLocation(data: {
   cod_available?: boolean;
   is_serviceable?: boolean;
   courier_code?: string;
-}): PakistanLocation {
+}): Promise<PakistanLocation> {
   ensureDatabaseReady();
   const db = getDatabase();
 
   const id = `loc_${crypto.randomUUID()}`;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pakistan_locations (
       id, province, division, district, tehsil, city, area, postal_code,
       delivery_fee, estimated_delivery_days, cod_available, is_serviceable, is_active,
@@ -467,7 +467,7 @@ export function createLocation(data: {
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, 1,
-      ?, datetime('now'), datetime('now')
+      ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
   `).run(
     id,
@@ -485,17 +485,17 @@ export function createLocation(data: {
     data.courier_code?.trim() || null
   );
 
-  return db.prepare(`SELECT * FROM pakistan_locations WHERE id = ?`).get(id) as PakistanLocation;
+  return await db.prepare(`SELECT * FROM pakistan_locations WHERE id = ?`).get(id) as PakistanLocation;
 }
 
 /**
  * Updates an existing location.
  */
-export function updateLocation(id: string, data: Partial<PakistanLocation>): boolean {
+export async function updateLocation(id: string, data: Partial<PakistanLocation>): Promise<boolean> {
   ensureDatabaseReady();
   const db = getDatabase();
 
-  const existing = db.prepare(`SELECT id FROM pakistan_locations WHERE id = ?`).get(id);
+  const existing = await db.prepare(`SELECT id FROM pakistan_locations WHERE id = ?`).get(id);
   if (!existing) return false;
 
   const fields: string[] = [];
@@ -515,19 +515,19 @@ export function updateLocation(id: string, data: Partial<PakistanLocation>): boo
   if (data.is_active !== undefined) { fields.push(`is_active = ?`); params.push(data.is_active ? 1 : 0); }
   if (data.courier_code !== undefined) { fields.push(`courier_code = ?`); params.push(data.courier_code); }
 
-  fields.push(`updated_at = datetime('now')`);
+  fields.push(`updated_at = CURRENT_TIMESTAMP`);
   params.push(id);
 
-  db.prepare(`UPDATE pakistan_locations SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  await db.prepare(`UPDATE pakistan_locations SET ${fields.join(', ')} WHERE id = ?`).run(...params);
   return true;
 }
 
 /**
  * Soft deactivates a location instead of hard deleting it to preserve order history.
  */
-export function softDeactivateLocation(id: string): boolean {
+export async function softDeactivateLocation(id: string): Promise<boolean> {
   ensureDatabaseReady();
   const db = getDatabase();
-  const res = db.prepare(`UPDATE pakistan_locations SET is_active = 0, updated_at = datetime('now') WHERE id = ?`).run(id);
-  return res.changes > 0;
+  const res = await db.prepare(`UPDATE pakistan_locations SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
+  return (res as any).changes > 0;
 }
