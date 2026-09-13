@@ -30,6 +30,7 @@ function TrackOrderContent() {
   const [order, setOrder] = useState<any | null>(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [slipToken, setSlipToken] = useState<string | undefined>(undefined);
 
   const fetchTracking = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
@@ -42,6 +43,7 @@ function TrackOrderContent() {
       const data = await res.json();
       if (data.success) {
         setOrder(data.order);
+        setSlipToken(data.slipToken);
       } else {
         setError(data.error || 'No consignment found matching this reference.');
       }
@@ -174,7 +176,7 @@ function TrackOrderContent() {
                 <div className="flex flex-col sm:items-end gap-2">
                   <div className="flex items-center gap-2">
                     <a
-                      href={`/api/orders/${order.id}/pdf?public=true`}
+                      href={`/api/orders/${order.id}/pdf?${slipToken ? `token=${encodeURIComponent(slipToken)}&download=true` : 'download=true'}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#FDFBF7] hover:bg-[#F5EEE2] border border-[#E8DBC5] text-[#113824] text-[11px] font-bold uppercase tracking-wider transition-colors shadow-2xs"

@@ -30,6 +30,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Enforce mixed-character policy
+    if (!/[A-Z]/.test(new_password)) {
+      return NextResponse.json(
+        { error: 'Password must contain at least one uppercase letter.' },
+        { status: 400 }
+      );
+    }
+    if (!/[a-z]/.test(new_password)) {
+      return NextResponse.json(
+        { error: 'Password must contain at least one lowercase letter.' },
+        { status: 400 }
+      );
+    }
+    if (!/[0-9]/.test(new_password)) {
+      return NextResponse.json(
+        { error: 'Password must contain at least one number.' },
+        { status: 400 }
+      );
+    }
+
+    // Reject well-known weak passwords
+    const WEAK_PASSWORDS = new Set([
+      'password', 'password123', 'admin', 'admin123', '123456', 'qwerty',
+      'abc123', 'letmein', '12345678', '111111', 'iloveyou', 'welcome',
+      'monkey', 'dragon', 'master', 'sunshine', 'princess', 'shadow',
+      'Password1', 'Admin123', 'Admin@123', 'Test1234'
+    ]);
+    if (WEAK_PASSWORDS.has(new_password) || WEAK_PASSWORDS.has(new_password.toLowerCase())) {
+      return NextResponse.json(
+        { error: 'This password is too common. Please choose a stronger, unique password.' },
+        { status: 400 }
+      );
+    }
+
     if (confirm_password && new_password !== confirm_password) {
       return NextResponse.json(
         { error: 'New password and confirmation do not match.' },

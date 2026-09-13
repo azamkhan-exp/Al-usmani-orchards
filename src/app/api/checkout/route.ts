@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getDatabase } from '@/lib/db';
 import { ensureDatabaseReady } from '@/lib/db/init';
 import { createOrder, CheckoutRequest } from '@/lib/services/order.service';
 import { getCurrentUser } from '@/lib/auth/session';
+import { generateOrderSlipToken } from '@/lib/pdf/tokens';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,11 +41,34 @@ export async function POST(req: NextRequest) {
 
     console.log(`[CHECKOUT] Successfully placed order ${result.orderNumber} (ID: ${result.orderId}) for PKR ${result.totalAmount}`);
 
+    // Generate a cryptographic HMAC slip token so the checkout confirmation page
+    // can show a download link without requiring re-authentication.
+    let slipToken: string | undefined;
+    try {
+      const db = getDatabase();
+      const orderRow = (await db.prepare(
+        'SELECT created_at FROM orders WHERE id = $1'
+      ).get(result.orderId)) as any;
+
+      if (orderRow?.created_at) {
+        const createdAt =
+          typeof orderRow.created_at === 'string'
+            ? orderRow.created_at
+            : new Date(orderRow.created_at).toISOString();
+        slipToken = generateOrderSlipToken(result.orderId!, result.orderNumber!, createdAt);
+      }
+    } catch (tokenErr) {
+      // Non-fatal — slip token is a convenience; the PDF route still works
+      // via session-based auth or guest contact verification.
+      console.warn('[CHECKOUT] Failed to generate slip token (non-fatal):', tokenErr);
+    }
+
     return NextResponse.json({
       success: true,
       orderId: result.orderId,
       orderNumber: result.orderNumber,
-      totalAmount: result.totalAmount
+      totalAmount: result.totalAmount,
+      slipToken
     });
   } catch (err: any) {
     console.error('[CHECKOUT] Checkout exception:', err.message || err);

@@ -213,10 +213,13 @@ export async function getProvinces(): Promise<string[]> {
   ensureDatabaseReady();
   const db = getDatabase();
   const rows = await db.prepare(`
-    SELECT DISTINCT province 
-    FROM pakistan_locations 
-    WHERE is_active = 1 
-    ORDER BY 
+    SELECT province
+    FROM (
+      SELECT DISTINCT province
+      FROM pakistan_locations
+      WHERE is_active = 1
+    ) AS provinces
+    ORDER BY
       CASE province
         WHEN 'Punjab' THEN 1
         WHEN 'Islamabad Capital Territory' THEN 2
@@ -226,8 +229,10 @@ export async function getProvinces(): Promise<string[]> {
         WHEN 'Azad Jammu & Kashmir' THEN 6
         WHEN 'Gilgit-Baltistan' THEN 7
         ELSE 8
-      END
+      END,
+      province
   `).all() as Array<{ province: string }>;
+
 
   return rows.map(r => r.province);
 }

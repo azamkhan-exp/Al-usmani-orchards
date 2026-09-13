@@ -92,6 +92,7 @@ export default function CheckoutPage() {
     orderNumber: string;
     orderId: string;
     totalAmount: number;
+    slipToken?: string;
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -180,7 +181,8 @@ export default function CheckoutPage() {
         setOrderConfirmed({
           orderNumber: data.orderNumber,
           orderId: data.orderId,
-          totalAmount: data.totalAmount
+          totalAmount: data.totalAmount,
+          slipToken: data.slipToken
         });
         clearCart();
       } else {
@@ -275,7 +277,7 @@ export default function CheckoutPage() {
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href={`/api/orders/${orderConfirmed.orderId}/pdf?public=true`}
+              href={`/api/orders/${orderConfirmed.orderId}/pdf?${orderConfirmed.slipToken ? `token=${encodeURIComponent(orderConfirmed.slipToken)}&download=true` : 'download=true'}`}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-bold text-xs uppercase tracking-wider shadow transition-colors"

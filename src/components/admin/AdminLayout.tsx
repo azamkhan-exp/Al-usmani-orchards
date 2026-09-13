@@ -40,7 +40,8 @@ import {
   ChevronDown,
   PanelLeftClose,
   PanelLeft,
-  CheckCircle2
+  CheckCircle2,
+  TrendingUp
 } from 'lucide-react';
 import AdminAIDrawer from './AdminAIDrawer';
 
@@ -51,29 +52,60 @@ interface NavItem {
   badge?: string;
 }
 
-// 10 Core SaaS Dashboard Navigation Items
-const CORE_NAV_ITEMS: NavItem[] = [
-  { title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-  { title: 'Products', href: '/admin/products', icon: Package },
-  { title: 'Inventory', href: '/admin/inventory', icon: Layers },
-  { title: 'Orders', href: '/admin/orders', icon: ShoppingBag },
-  { title: 'Customers', href: '/admin/customers', icon: Users },
-  { title: 'Promotions', href: '/admin/promotions', icon: Tag },
-  { title: 'Content', href: '/admin/cms', icon: FileText },
-  { title: 'Settings', href: '/admin/settings', icon: Settings },
-  { title: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
-  { title: 'Security', href: '/admin/security', icon: Shield }
-];
+// ── 5-Category Command Centre Navigation ────────────────────────────────────
 
-// Specialized Operations & Back-Office Tools
-const SECONDARY_NAV_ITEMS: NavItem[] = [
-  { title: 'Finance & Ledger', href: '/admin/finance', icon: DollarSign },
-  { title: 'Farm Harvest Batches', href: '/admin/farm', icon: Sprout },
-  { title: 'Payment Gateways', href: '/admin/payments', icon: CreditCard },
-  { title: 'Pakistan Delivery & Rates', href: '/admin/delivery/locations', icon: MapPin },
-  { title: 'System Health & Launch', href: '/admin/system-health', icon: Activity, badge: 'PROD' },
-  { title: 'Data Management', href: '/admin/data-management', icon: Database },
-  { title: 'Operations Guide', href: '/admin/guide', icon: FileText, badge: 'MANUAL' }
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Store',
+    items: [
+      { title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+      { title: 'Products', href: '/admin/products', icon: Package },
+      { title: 'Inventory', href: '/admin/inventory', icon: Layers },
+      { title: 'Orders', href: '/admin/orders', icon: ShoppingBag },
+      { title: 'Customers', href: '/admin/customers', icon: Users },
+      { title: 'Promotions', href: '/admin/promotions', icon: Tag }
+    ]
+  },
+  {
+    label: 'Website',
+    items: [
+      { title: 'Website Content', href: '/admin/cms', icon: FileText },
+      { title: 'Media Library', href: '/admin/cms?tab=media', icon: Star }
+    ]
+  },
+  {
+    label: 'Business',
+    items: [
+      { title: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
+      { title: 'Performance Reports', href: '/admin/analytics?tab=reports', icon: TrendingUp },
+      { title: 'Finance & Ledger', href: '/admin/finance', icon: DollarSign },
+      { title: 'Payments', href: '/admin/payments', icon: CreditCard },
+      { title: 'Farm & Batches', href: '/admin/farm', icon: Sprout },
+      { title: 'Delivery Rates', href: '/admin/delivery/locations', icon: MapPin }
+    ]
+  },
+  {
+    label: 'Security',
+    items: [
+      { title: 'Admin Access', href: '/admin/security', icon: Shield },
+      { title: 'Security Center', href: '/admin/security?tab=center', icon: Lock },
+      { title: 'Audit Logs', href: '/admin/security?tab=audit', icon: CheckCircle2 }
+    ]
+  },
+  {
+    label: 'System',
+    items: [
+      { title: 'Settings', href: '/admin/settings', icon: Settings },
+      { title: 'System Health', href: '/admin/system-health', icon: Activity, badge: 'PROD' },
+      { title: 'Data Management', href: '/admin/data-management', icon: Database },
+      { title: 'Operations Guide', href: '/admin/guide', icon: MessageSquare, badge: 'MANUAL' }
+    ]
+  }
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -85,23 +117,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
+  // Track which nav groups are open (expanded)
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    Store: true,
+    Website: false,
+    Business: false,
+    Security: false,
+    System: false
+  });
+
   // Active link helper
   const isItemActive = (href: string) => {
-    if (href === '/admin') {
-      return pathname === '/admin';
-    }
     const baseHref = href.split('?')[0];
+    if (baseHref === '/admin') return pathname === '/admin';
     return pathname === baseHref || pathname.startsWith(baseHref + '/');
   };
 
-  const isSecondaryActive = SECONDARY_NAV_ITEMS.some((item) => isItemActive(item.href));
-  const [operationsOpen, setOperationsOpen] = useState(false);
-
+  // Auto-expand the group that contains the current active page
   useEffect(() => {
-    if (isSecondaryActive) {
-      setOperationsOpen(true);
+    const activeGroup = NAV_GROUPS.find((g) =>
+      g.items.some((item) => isItemActive(item.href))
+    );
+    if (activeGroup) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.label]: true }));
     }
-  }, [isSecondaryActive]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  const toggleGroup = (label: string) => {
+    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  };
 
   // Note: Route-level authentication and role verification is strictly enforced
   // server-side in src/middleware.ts and src/app/admin/layout.tsx.
@@ -214,99 +259,79 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           )}
 
-          {/* Navigation Links */}
-          <nav className="flex-1 p-3 space-y-3 overflow-y-auto text-xs scrollbar-thin scrollbar-thumb-emerald-900">
-            {/* Core SaaS Dashboard Items (10 Items) */}
-            <div className="space-y-1">
-              {!isCollapsed && (
-                <div className="px-3 py-1 text-[10px] font-bold tracking-widest text-stone-400/80 uppercase">
-                  Core Management
-                </div>
-              )}
-              {CORE_NAV_ITEMS.map((item) => {
-                const isActive = isItemActive(item.href);
-                const Icon = item.icon;
+          {/* Navigation Links — 5-Category Command Centre */}
+          <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto text-xs scrollbar-thin scrollbar-thumb-emerald-900">
+            {NAV_GROUPS.map((group, groupIndex) => {
+              const isGroupOpen = openGroups[group.label];
+              const hasActiveItem = group.items.some((item) => isItemActive(item.href));
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setSidebarOpen(false)}
-                    title={isCollapsed ? item.title : undefined}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group min-h-[42px] cursor-pointer ${
-                      isActive
-                        ? 'bg-amber-500 text-stone-950 font-bold shadow-sm'
-                        : 'text-stone-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-stone-950' : 'text-stone-300 group-hover:text-amber-400'}`} />
-                      {!isCollapsed && <span className="truncate">{item.title}</span>}
-                    </div>
-                    {!isCollapsed && item.badge && (
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                          isActive ? 'bg-stone-950 text-amber-400' : 'bg-white/15 text-stone-200'
-                        }`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-
-            {/* Specialized Operations & Back-Office Tools */}
-            <div className="pt-2 border-t border-emerald-900/50 space-y-1">
-              {!isCollapsed ? (
-                <button
-                  type="button"
-                  onClick={() => setOperationsOpen(!operationsOpen)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold tracking-widest text-stone-400/80 uppercase hover:text-stone-200 transition-colors cursor-pointer"
+              return (
+                <div
+                  key={group.label}
+                  className={groupIndex > 0 ? 'pt-1 border-t border-emerald-900/40' : ''}
                 >
-                  <span>Operations & Tools</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${operationsOpen ? 'rotate-180' : ''}`} />
-                </button>
-              ) : null}
+                  {/* Group Header — collapsible (hidden when sidebar is icon-only) */}
+                  {!isCollapsed && (
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.label)}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors cursor-pointer rounded-lg ${
+                        hasActiveItem
+                          ? 'text-amber-400 hover:text-amber-300'
+                          : 'text-stone-400/80 hover:text-stone-200'
+                      }`}
+                    >
+                      <span>{group.label}</span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform duration-200 ${isGroupOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  )}
 
-              {(operationsOpen || isCollapsed) && (
-                <div className="space-y-1 pt-0.5">
-                  {SECONDARY_NAV_ITEMS.map((item) => {
-                    const isActive = isItemActive(item.href);
-                    const Icon = item.icon;
+                  {/* Group Items */}
+                  {(isGroupOpen || isCollapsed) && (
+                    <div className="space-y-0.5 pt-0.5">
+                      {group.items.map((item) => {
+                        const isActive = isItemActive(item.href);
+                        const Icon = item.icon;
 
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setSidebarOpen(false)}
-                        title={isCollapsed ? item.title : undefined}
-                        className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all group min-h-[38px] cursor-pointer ${
-                          isActive
-                            ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
-                            : 'text-stone-400 hover:bg-white/5 hover:text-stone-200'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3 min-w-0">
-                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-amber-300'}`} />
-                          {!isCollapsed && <span className="truncate">{item.title}</span>}
-                        </div>
-                        {!isCollapsed && item.badge && (
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                              isActive ? 'bg-amber-500 text-stone-950' : 'bg-white/10 text-stone-300'
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setSidebarOpen(false)}
+                            title={isCollapsed ? item.title : undefined}
+                            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all group min-h-[38px] cursor-pointer ${
+                              isActive
+                                ? 'bg-amber-500 text-stone-950 font-bold shadow-sm'
+                                : 'text-stone-300 hover:bg-white/10 hover:text-white'
                             }`}
                           >
-                            {item.badge}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
+                            <div className="flex items-center space-x-3 min-w-0">
+                              <Icon
+                                className={`w-4 h-4 shrink-0 ${
+                                  isActive ? 'text-stone-950' : 'text-stone-300 group-hover:text-amber-400'
+                                }`}
+                              />
+                              {!isCollapsed && <span className="truncate">{item.title}</span>}
+                            </div>
+                            {!isCollapsed && item.badge && (
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  isActive ? 'bg-stone-950 text-amber-400' : 'bg-white/15 text-stone-200'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })}
           </nav>
         </div>
 

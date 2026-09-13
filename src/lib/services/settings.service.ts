@@ -74,8 +74,8 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
 
 export const DEFAULT_CONTACT_SETTINGS: ContactSettings = {
   support_email: 'harvest@alusmaniorchards.pk',
-  phone: '+92 300 8472910',
-  whatsapp: '+92 300 8472910',
+  phone: '+92 331 5500414',
+  whatsapp: '+92 3315500414',
   farm_locations: [
     { name: 'Multan Royal Estate', address: 'Shujabad Road, Multan, Punjab, Pakistan' },
     { name: 'Mirpur Khas Heritage Grove', address: 'Mirwah Gorchani, Mirpur Khas, Sindh, Pakistan' }
@@ -97,7 +97,7 @@ export const DEFAULT_SEO_SETTINGS: SeoSettings = {
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   admin_email: 'orders@alusmaniorchards.pk',
-  admin_whatsapp: '+92 300 8472910',
+  admin_whatsapp: '+92 3315500414',
   enable_admin_email: true,
   enable_admin_whatsapp: true,
   enable_customer_email: true,
