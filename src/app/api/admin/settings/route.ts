@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function post(req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
     ensureDatabaseReady();
     const user = await getCurrentUser();
